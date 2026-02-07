@@ -37,6 +37,7 @@ VS Code, Warp, Windows Terminal, PowerShell 등 **다양한 실행 환경**에�
 | Hook 설계 | 질문 감지만 (`pre_tool_execution`) | `PreToolUse`/`PostToolUse` + `Notification` + `Stop` |
 | Hook 이벤트명 | `pre_tool_execution`/`post_tool_execution` (구 명칭) | `PreToolUse`/`PostToolUse` (Claude Code 공식 명칭) |
 | 알림 타이밍 | 5분 타이머 후 Slack 알림 | 질문 발생 즉시 Slack 전송 (멀티세션에서 더 적합) |
+| 설정 관리 | `config/security.json` 등 JSON 파일 | `.env` 파일 하나로 통합 (초보자 친화적) |
 
 ### 1.3 전체 아키텍처
 
@@ -233,9 +234,10 @@ state/
 │   │
 │   └── ...
 │
-├── execution-queue.json       # 원격 실행 큐 (공유, 파일 락킹)
-└── config.json                # 글로벌 설정
+└── execution-queue.json       # 원격 실행 큐 (공유, 파일 락킹)
 ```
+
+> **참고**: 글로벌 설정은 `config/` JSON 파일이 아닌 `.env` 환경변수로 관리한다. (섹션 13 참조)
 
 ### 4.2 질문 파일 스키마
 
@@ -958,7 +960,7 @@ mcp-slack-bridge/
 │   │
 │   ├── shared/                       # 공유 모듈
 │   │   ├── types.ts                  # 공유 타입 정의
-│   │   ├── constants.ts              # 상수 (경로, 기본값)
+│   │   ├── config.ts                 # 환경변수 로딩 + 검증 (.env → CONFIG 객체)
 │   │   ├── environment.ts            # 환경 감지 함수
 │   │   ├── file-utils.ts             # Atomic write, 파일 락킹
 │   │   └── logger.ts                 # 로깅 유틸리티
@@ -971,12 +973,7 @@ mcp-slack-bridge/
 │
 ├── state/                            # 런타임 상태 (gitignore)
 │   ├── sessions/                     # 세션별 디렉토리 (동적 생성)
-│   ├── execution-queue.json          # 원격 실행 큐 (공유)
-│   └── config.json                   # 런타임 설정
-│
-├── config/
-│   ├── default.json                  # 기본 설정
-│   └── security.json                 # 허용 유저, 금지 명령어
+│   └── execution-queue.json          # 원격 실행 큐 (공유)
 │
 ├── claudedocs/                       # 설계 문서
 │   ├── slack-claude-integration-spec.md  # 기존 단일 세션 설계
@@ -1080,9 +1077,10 @@ export interface ContextInjection {
 ```
 1. TypeScript 프로젝트 초기화 (package.json, tsconfig.json)
 2. 의존성 설치 (@slack/bolt, @modelcontextprotocol/sdk, dotenv, uuid)
-3. 공유 모듈 구현 (types, constants, file-utils, environment, logger)
-4. state/ 디렉토리 구조 생성 및 .gitignore 설정
-5. 빌드 스크립트 설정
+3. .env.example 작성 (전체 설정 템플릿)
+4. 공유 모듈 구현 (types, config, file-utils, environment, logger)
+5. state/ 디렉토리 구조 생성 및 .gitignore 설정
+6. 빌드 스크립트 설정
 ```
 
 ### Phase 1: 세션 관리 코어
@@ -1142,61 +1140,222 @@ export interface ContextInjection {
 
 ---
 
-## 13. 보안 설계
+## 13. 설정 및 보안 설계
 
-### 13.1 인증/인가
+> **설계 원칙**: 모든 설정은 `.env` 파일 하나에서 관리한다.
+> JSON 설정 파일 없이 `.env`만 편집하면 시스템이 동작한다.
+> 초보자도 `.env.example`을 복사하고 값만 채우면 바로 사용할 수 있다.
 
-```json
-// config/security.json
-{
-  "allowedSlackUsers": ["U0123ABC"],
-  "allowedChannels": ["C0456DEF"],
-  "blockedCommands": [
-    "rm -rf",
-    "format",
-    "del /f",
-    "DROP TABLE",
-    "DROP DATABASE"
-  ],
-  "maxPromptLength": 2000,
-  "requireConfirmationFor": [
-    "git push",
-    "git reset",
-    "database migration",
-    "delete",
-    "remove"
-  ],
-  "sessionSecurity": {
-    "maxActiveSessions": 10,
-    "sessionTimeoutMs": 3600000,
-    "requireSlackAuth": true
+### 13.1 `.env.example` (전체 설정 템플릿)
+
+프로젝트 루트에 `.env.example` 파일을 제공한다. 사용자는 이 파일을 `.env`로 복사하고 값만 채우면 된다.
+
+```bash
+# ============================================================
+# Slack-Claude Code 멀티세션 통합 시스템 설정
+# ============================================================
+# 사용법:
+#   1. 이 파일을 .env로 복사:  cp .env.example .env
+#   2. 아래 값들을 본인 환경에 맞게 수정
+#   3. Bot 서비스 시작:  npm run start:bot
+# ============================================================
+
+# -----------------------------------------------------------
+# [필수] Slack 연결 설정
+# -----------------------------------------------------------
+# Slack App 생성 후 발급받는 토큰들
+# 발급 방법: https://api.slack.com/apps → 앱 생성 → OAuth & Permissions
+SLACK_BOT_TOKEN=xoxb-your-bot-token-here
+SLACK_APP_TOKEN=xapp-your-app-token-here
+SLACK_SIGNING_SECRET=your-signing-secret-here
+
+# 알림을 보낼 Slack 채널 ID
+# 채널 ID 확인: Slack에서 채널 우클릭 → "채널 세부정보" → 맨 아래 ID
+SLACK_CHANNEL_ID=C0123456789
+
+# -----------------------------------------------------------
+# [필수] 보안 설정
+# -----------------------------------------------------------
+# 봇 사용이 허용된 Slack 유저 ID (콤마로 구분)
+# 유저 ID 확인: Slack에서 프로필 클릭 → ⋮ → "멤버 ID 복사"
+ALLOWED_USER_IDS=U0123ABC
+
+# 봇 사용이 허용된 Slack 채널 ID (콤마로 구분, 비워두면 모든 채널 허용)
+ALLOWED_CHANNEL_IDS=C0123456789
+
+# -----------------------------------------------------------
+# [선택] 작업 디렉토리
+# -----------------------------------------------------------
+# Claude Code가 작업할 기본 디렉토리
+CLAUDE_WORKING_DIR=C:\program1\gameServer
+
+# 상태 파일 저장 경로 (기본: ./state)
+STATE_DIR=./state
+
+# -----------------------------------------------------------
+# [선택] 보안 필터
+# -----------------------------------------------------------
+# 차단할 위험 명령어 (콤마로 구분)
+# 이 문자열이 포함된 프롬프트는 실행 거부됨
+BLOCKED_COMMANDS=rm -rf,format,del /f,DROP TABLE,DROP DATABASE
+
+# 추가 확인이 필요한 명령어 (콤마로 구분)
+# 이 문자열이 포함되면 Slack에서 한번 더 확인 후 실행
+CONFIRM_COMMANDS=git push,git reset,database migration,delete,remove
+
+# Slack 원격 실행 시 최대 프롬프트 길이 (기본: 2000)
+MAX_PROMPT_LENGTH=2000
+
+# -----------------------------------------------------------
+# [선택] 세션 관리
+# -----------------------------------------------------------
+# 동시 활성 세션 최대 개수 (기본: 10)
+MAX_ACTIVE_SESSIONS=10
+
+# 세션 타임아웃 - 밀리초 (기본: 3600000 = 1시간)
+SESSION_TIMEOUT_MS=3600000
+
+# Heartbeat 간격 - 밀리초 (기본: 30000 = 30초)
+HEARTBEAT_INTERVAL_MS=30000
+
+# Stale 세션 정리 기준 - 밀리초 (기본: 300000 = 5분)
+STALE_SESSION_MS=300000
+
+# -----------------------------------------------------------
+# [선택] 폴링 설정
+# -----------------------------------------------------------
+# Bot 서비스가 세션 디렉토리를 스캔하는 간격 - 밀리초 (기본: 2000 = 2초)
+POLL_INTERVAL_MS=2000
+
+# -----------------------------------------------------------
+# [선택] 실행 큐 설정
+# -----------------------------------------------------------
+# 동시 실행 작업 수 (기본: 1)
+MAX_CONCURRENT_EXECUTIONS=1
+
+# 대기 큐 최대 크기 (기본: 5)
+MAX_QUEUE_SIZE=5
+
+# 작업 실행 타임아웃 - 밀리초 (기본: 600000 = 10분)
+EXECUTION_TIMEOUT_MS=600000
+
+# -----------------------------------------------------------
+# [선택] 로깅
+# -----------------------------------------------------------
+# 로그 레벨: debug, info, warn, error (기본: info)
+LOG_LEVEL=info
+```
+
+### 13.2 환경변수 → 설정 로딩 코드
+
+```typescript
+// src/shared/config.ts
+import { config } from 'dotenv';
+import { resolve } from 'path';
+
+config({ path: resolve(__dirname, '../../.env') });
+
+function envString(key: string, fallback: string = ''): string {
+  return process.env[key] || fallback;
+}
+
+function envNumber(key: string, fallback: number): number {
+  const val = process.env[key];
+  return val ? Number(val) : fallback;
+}
+
+function envList(key: string, fallback: string[] = []): string[] {
+  const val = process.env[key];
+  if (!val) return fallback;
+  return val.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+export const CONFIG = {
+  // Slack 연결
+  slack: {
+    botToken:       envString('SLACK_BOT_TOKEN'),
+    appToken:       envString('SLACK_APP_TOKEN'),
+    signingSecret:  envString('SLACK_SIGNING_SECRET'),
+    channelId:      envString('SLACK_CHANNEL_ID'),
+  },
+
+  // 보안
+  security: {
+    allowedUserIds:    envList('ALLOWED_USER_IDS'),
+    allowedChannelIds: envList('ALLOWED_CHANNEL_IDS'),
+    blockedCommands:   envList('BLOCKED_COMMANDS', ['rm -rf', 'format', 'del /f', 'DROP TABLE', 'DROP DATABASE']),
+    confirmCommands:   envList('CONFIRM_COMMANDS', ['git push', 'git reset', 'database migration', 'delete', 'remove']),
+    maxPromptLength:   envNumber('MAX_PROMPT_LENGTH', 2000),
+  },
+
+  // 세션
+  session: {
+    maxActive:       envNumber('MAX_ACTIVE_SESSIONS', 10),
+    timeoutMs:       envNumber('SESSION_TIMEOUT_MS', 3600000),
+    heartbeatMs:     envNumber('HEARTBEAT_INTERVAL_MS', 30000),
+    staleMs:         envNumber('STALE_SESSION_MS', 300000),
+  },
+
+  // 폴링
+  pollIntervalMs:    envNumber('POLL_INTERVAL_MS', 2000),
+
+  // 실행 큐
+  queue: {
+    maxConcurrent:   envNumber('MAX_CONCURRENT_EXECUTIONS', 1),
+    maxSize:         envNumber('MAX_QUEUE_SIZE', 5),
+    timeoutMs:       envNumber('EXECUTION_TIMEOUT_MS', 600000),
+  },
+
+  // 경로
+  paths: {
+    workingDir:      envString('CLAUDE_WORKING_DIR', process.cwd()),
+    stateDir:        envString('STATE_DIR', './state'),
+  },
+
+  // 로깅
+  logLevel:          envString('LOG_LEVEL', 'info'),
+} as const;
+
+// 필수 환경변수 검증 (Bot 서비스 시작 시 호출)
+export function validateConfig(): void {
+  const required = ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN', 'SLACK_CHANNEL_ID', 'ALLOWED_USER_IDS'];
+  const missing = required.filter(key => !process.env[key]);
+  if (missing.length > 0) {
+    console.error(`\n❌ 필수 환경변수가 설정되지 않았습니다:\n`);
+    for (const key of missing) {
+      console.error(`   - ${key}`);
+    }
+    console.error(`\n💡 .env.example 파일을 .env로 복사하고 값을 채워주세요:`);
+    console.error(`   cp .env.example .env\n`);
+    process.exit(1);
   }
 }
 ```
 
-### 13.2 세션 보안
+### 13.3 설정 사용 예시
+
+```typescript
+// 기존 JSON 참조 방식 (제거됨)
+// ❌ const security = JSON.parse(readFileSync('config/security.json', 'utf8'));
+// ❌ if (security.allowedSlackUsers.includes(userId)) { ... }
+
+// 새 환경변수 방식
+// ✅ import { CONFIG } from '../shared/config';
+// ✅ if (CONFIG.security.allowedUserIds.includes(userId)) { ... }
+```
+
+### 13.4 세션 보안
 
 | 위협 | 대응 |
 |------|------|
 | 세션 ID 추측 | UUID v4 사용 (122비트 엔트로피) |
-| Stale 세션 공격 | heartbeat 타임아웃 + 자동 정리 |
+| Stale 세션 공격 | heartbeat 타임아웃 + 자동 정리 (`STALE_SESSION_MS`) |
 | 파일 시스템 경쟁 조건 | Atomic write + 파일 락킹 |
 | 환경변수 유출 | `.env` gitignore + 토큰 최소 권한 |
-| 무한 세션 생성 | `maxActiveSessions` 제한 (기본 10) |
-| 응답 위조 | Slack User ID 검증 + allowedSlackUsers |
-
-### 13.3 환경변수
-
-```bash
-# .env (절대 커밋하지 않음)
-SLACK_BOT_TOKEN=xoxb-...          # Bot User OAuth Token
-SLACK_APP_TOKEN=xapp-...          # App-Level Token (Socket Mode)
-SLACK_CHANNEL_ID=C0123...         # 알림 채널
-SLACK_SIGNING_SECRET=...          # 요청 검증
-ALLOWED_USER_IDS=U0123,U0456      # 허용 유저
-CLAUDE_WORKING_DIR=C:\program1\gameServer
-STATE_DIR=./state                  # 상태 디렉토리 경로
-```
+| 무한 세션 생성 | `MAX_ACTIVE_SESSIONS` 환경변수로 제한 (기본 10) |
+| 응답 위조 | Slack User ID 검증 + `ALLOWED_USER_IDS` 환경변수 |
+| 위험 명령어 | `BLOCKED_COMMANDS` 환경변수로 차단 목록 관리 |
+| 설정 미입력 | `validateConfig()`가 시작 시 필수값 누락을 친절하게 안내 |
 
 ---
 
