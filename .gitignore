@@ -11,7 +11,8 @@ dist/
 .env.local
 
 # Runtime state
-state/sessions/
+state/sessions/*
+!state/sessions/.gitkeep
 state/execution-queue.json
 
 # IDE
