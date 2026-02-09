@@ -128,6 +128,7 @@ cp .env.example .env
 | `BLOCKED_COMMANDS` | 차단할 명령어 (쉼표 구분) | `rm -rf,format,del /f,...` |
 | `CONFIRM_COMMANDS` | 확인 필요 명령어 (쉼표 구분) | `git push,git reset,...` |
 | `MAX_PROMPT_LENGTH` | 최대 프롬프트 길이 | `2000` |
+| `NOTIFICATION_DELAY_SECONDS` | 질문 Slack 전송 지연 (초, 0=즉시) | `300` (5분) |
 | `MAX_ACTIVE_SESSIONS` | 최대 동시 세션 수 | `10` |
 | `SESSION_TIMEOUT_MS` | 세션 타임아웃 (ms) | `3600000` (1시간) |
 | `HEARTBEAT_INTERVAL_MS` | Heartbeat 간격 (ms) | `30000` (30초) |
@@ -193,6 +194,13 @@ Claude Code에서 MCP 서버를 사용하려면 설정 파일에 등록해야 �
 ```
 
 > MCP 서버는 stdio transport를 사용하며, Claude Code가 세션 시작 시 자동으로 프로세스를 생성합니다.
+
+### 멀티세션 환경 참고사항
+
+여러 터미널에서 동시에 Claude Code를 실행하는 경우:
+- `.env`의 `CLAUDE_WORKING_DIR`는 **설정하지 마세요** (주석 유지)
+- 각 MCP 서버가 Claude Code 실행 디렉토리를 자동 감지합니다 (`process.cwd()`)
+- `STATE_DIR`만 모든 세션이 공유하는 동일 경로로 설정하면 됩니다
 
 ## MCP 도구
 
