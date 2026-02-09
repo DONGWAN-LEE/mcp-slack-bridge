@@ -6,6 +6,8 @@ import {
   mcpValidationSchema,
 } from '@app/shared';
 import { SessionModule } from './session/session.module';
+import { BridgeModule } from './bridge/bridge.module';
+import { McpModule } from './mcp/mcp.module';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { SessionModule } from './session/session.module';
       },
     }),
     SessionModule,
+    BridgeModule,
+    McpModule,
   ],
 })
 export class AppModule {}
