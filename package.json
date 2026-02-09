@@ -1,0 +1,63 @@
+{
+  "name": "mcp-slack-bridge",
+  "version": "2.0.0",
+  "description": "Slack-Claude Code multi-session integration system",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "nest build",
+    "build:shared": "nest build shared",
+    "build:bot": "nest build bot-service",
+    "build:mcp": "nest build mcp-server",
+    "build:all": "nest build shared && nest build bot-service && nest build mcp-server",
+    "start:bot": "nest start bot-service",
+    "start:mcp": "nest start mcp-server",
+    "start:bot:dev": "nest start bot-service --watch",
+    "start:mcp:dev": "nest start mcp-server --watch",
+    "lint": "eslint \"{apps,libs}/**/*.ts\"",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@nestjs/common": "^11.1.13",
+    "@nestjs/config": "^4.0.3",
+    "@nestjs/core": "^11.1.13",
+    "@nestjs/platform-express": "^11.1.13",
+    "@slack/bolt": "^4.6.0",
+    "dotenv": "^17.2.4",
+    "joi": "^18.0.2",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "tree-kill": "^1.2.2",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.16",
+    "@nestjs/schematics": "^11.0.9",
+    "@nestjs/testing": "^11.1.13",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.2.1",
+    "@types/uuid": "^10.0.0",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.9.3"
+  },
+  "jest": {
+    "moduleFileExtensions": ["js", "json", "ts"],
+    "rootDir": ".",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "collectCoverageFrom": ["**/*.(t|j)s"],
+    "coverageDirectory": "./coverage",
+    "testEnvironment": "node",
+    "roots": ["<rootDir>/apps/", "<rootDir>/libs/"],
+    "moduleNameMapper": {
+      "^@app/shared(|/.*)$": "<rootDir>/libs/shared/src/$1"
+    }
+  }
+}

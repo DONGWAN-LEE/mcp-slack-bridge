@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build output
+dist/
+.tsbuildinfo
+
+# Environment
+.env
+.env.local
+
+# Runtime state
+state/sessions/*
+!state/sessions/.gitkeep
+state/execution-queue.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+nul
+
+# Git worktrees
+.worktrees/
+
+# Logs
+*.log
+logs/
+
+# Coverage
+coverage/
+
+# Playwright MCP
+.playwright-mcp/
+
+# Temp
+*.tmp
+.tmp-*

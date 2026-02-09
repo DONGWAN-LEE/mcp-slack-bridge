@@ -542,23 +542,23 @@ function buildQuestionMessage(meta: SessionMeta, question: QuestionFile): SlackM
     "PreToolUse": [
       {
         "matcher": "AskUserQuestion",
-        "command": "node src/hooks/on-question-asked.js"
+        "command": "node hooks/on-question-asked.js"
       }
     ],
     "PostToolUse": [
       {
         "matcher": "AskUserQuestion",
-        "command": "node src/hooks/on-question-answered.js"
+        "command": "node hooks/on-question-answered.js"
       }
     ],
     "Notification": [
       {
-        "command": "node src/hooks/on-notification.js"
+        "command": "node hooks/on-notification.js"
       }
     ],
     "Stop": [
       {
-        "command": "node src/hooks/on-stop.js"
+        "command": "node hooks/on-stop.js"
       }
     ]
   }
@@ -918,76 +918,115 @@ inject 파일 스키마:
 
 ## 10. 디렉토리 구조 (프로젝트 전체)
 
+> **NestJS Monorepo 구조**: `nest new --monorepo` 기반으로 두 개의 독립 애플리케이션(`bot-service`, `mcp-server`)과
+> 하나의 공유 라이브러리(`libs/shared`)로 구성한다. Hook 스크립트는 NestJS 외부에서 독립 실행되므로
+> 프로젝트 루트의 `hooks/` 디렉토리에 별도 배치한다.
+
 ```
 mcp-slack-bridge/
-├── package.json
-├── tsconfig.json
-├── .env                              # 환경변수 (Slack 토큰 등)
-├── .env.example                      # 환경변수 템플릿
+├── nest-cli.json                         # NestJS Monorepo 설정 (projects 정의)
+├── package.json                          # 루트 package.json (workspace)
+├── tsconfig.json                         # 루트 TypeScript 설정
+├── .env                                  # 환경변수 (Slack 토큰 등)
+├── .env.example                          # 환경변수 템플릿
+├── .gitignore
 │
-├── src/
-│   ├── bot-service/                  # Slack Bot 서비스 (상시 실행, 싱글톤)
-│   │   ├── index.ts                  # 진입점, Bolt 앱 초기화
-│   │   ├── poller.ts                 # 세션 디렉토리 폴링
-│   │   ├── handlers/
-│   │   │   ├── command-handler.ts    # /claude, /claude-sessions, /claude-inject
-│   │   │   ├── action-handler.ts     # 버튼 클릭 (승인/거절) 처리
-│   │   │   └── modal-handler.ts      # 텍스트 답변 모달 처리
-│   │   ├── services/
-│   │   │   ├── executor.ts           # Claude CLI 실행 관리
-│   │   │   ├── queue.ts              # 작업 큐 관리
-│   │   │   └── notifier.ts           # 알림 발송
-│   │   └── formatters/
-│   │       ├── session-message.ts    # 세션 시작/종료 메시지 포맷
-│   │       ├── question-message.ts   # 질문 메시지 포맷 (action_id 인코딩)
-│   │       └── result-message.ts     # 실행 결과 메시지 포맷
+├── apps/
+│   ├── bot-service/                      # Slack Bot 서비스 (상시 실행, 싱글톤)
+│   │   ├── src/
+│   │   │   ├── main.ts                   # 진입점 (NestFactory.create)
+│   │   │   ├── app.module.ts             # 루트 모듈 (SlackModule, PollerModule 임포트)
+│   │   │   ├── slack/                    # Slack 연동 모듈 [Phase 3]
+│   │   │   │   ├── slack.module.ts       # SlackModule 정의
+│   │   │   │   ├── slack.service.ts      # Bolt 앱 초기화, Socket Mode 연결
+│   │   │   │   ├── handlers/
+│   │   │   │   │   ├── command.handler.ts    # /claude, /claude-sessions, /claude-inject
+│   │   │   │   │   ├── action.handler.ts     # 버튼 클릭 (승인/거절) 처리
+│   │   │   │   │   └── modal.handler.ts      # 텍스트 답변 모달 처리
+│   │   │   │   └── formatters/
+│   │   │   │       ├── session-message.formatter.ts   # 세션 시작/종료 메시지 포맷
+│   │   │   │       ├── question-message.formatter.ts  # 질문 메시지 포맷 (action_id 인코딩)
+│   │   │   │       └── result-message.formatter.ts    # 실행 결과 메시지 포맷
+│   │   │   ├── poller/                   # 세션 폴링 모듈 [Phase 3]
+│   │   │   │   ├── poller.module.ts      # PollerModule 정의
+│   │   │   │   ├── poller.service.ts     # 세션 디렉토리 폴링 (2초 간격)
+│   │   │   │   └── poller.scheduler.ts   # @Cron 또는 setInterval 기반 스케줄링
+│   │   │   └── executor/                 # 원격 실행 모듈 [Phase 5]
+│   │   │       ├── executor.module.ts    # ExecutorModule 정의
+│   │   │       ├── executor.service.ts   # Claude CLI 실행 관리
+│   │   │       ├── queue.service.ts      # 작업 큐 관리 (파일 락킹)
+│   │   │       └── notifier.service.ts   # 알림 발송
+│   │   └── tsconfig.app.json            # bot-service 전용 TS 설정
 │   │
-│   ├── mcp-server/                   # MCP 서버 (세션당 1개 인스턴스)
-│   │   ├── index.ts                  # MCP 서버 진입점 + 세션 등록
-│   │   ├── session.ts                # 세션 관리 (ID 생성, 환경 감지, heartbeat)
-│   │   ├── tools/
-│   │   │   ├── slack-ask.ts          # slack_ask 도구 (세션 인식)
-│   │   │   ├── slack-notify.ts       # slack_notify 도구
-│   │   │   └── slack-wait.ts         # slack_wait_response 도구
-│   │   └── bridge/
-│   │       └── file-bridge.ts        # 파일 기반 IPC (질문/응답 읽기쓰기)
-│   │
-│   ├── hooks/                        # Claude Code Hooks 스크립트
-│   │   ├── on-question-asked.ts      # PreToolUse: 질문 감지
-│   │   ├── on-question-answered.ts   # PostToolUse: 응답 완료 감지
-│   │   ├── on-notification.ts        # Notification: 알림 캡처
-│   │   └── on-stop.ts                # Stop: 세션 정리
-│   │
-│   ├── shared/                       # 공유 모듈
-│   │   ├── types.ts                  # 공유 타입 정의
-│   │   ├── config.ts                 # 환경변수 로딩 + 검증 (.env → CONFIG 객체)
-│   │   ├── environment.ts            # 환경 감지 함수
-│   │   ├── file-utils.ts             # Atomic write, 파일 락킹
-│   │   └── logger.ts                 # 로깅 유틸리티
-│   │
-│   └── types/                        # TypeScript 타입
-│       ├── session.ts                # SessionMeta, EnvironmentInfo
-│       ├── question.ts               # QuestionFile, ResponseFile
-│       ├── notification.ts           # NotificationFile
-│       └── slack.ts                  # Slack 메시지 타입
+│   └── mcp-server/                       # MCP 서버 (세션당 1개 인스턴스, stdio)
+│       ├── src/
+│       │   ├── main.ts                   # 진입점 (stdio 기반 MCP 서버 부트스트랩)
+│       │   ├── app.module.ts             # 루트 모듈 (SessionModule, McpModule 임포트)
+│       │   ├── session/                  # 세션 관리 모듈 [Phase 1]
+│       │   │   ├── session.module.ts     # SessionModule 정의
+│       │   │   ├── session.service.ts    # 세션 생성, 환경 감지, heartbeat
+│       │   │   └── environment.detector.ts  # 터미널/IDE 환경 감지
+│       │   ├── mcp/                      # MCP 도구 모듈 [Phase 2]
+│       │   │   ├── mcp.module.ts         # McpModule 정의
+│       │   │   ├── tools/
+│       │   │   │   ├── slack-ask.tool.ts      # slack_ask 도구 (세션 인식)
+│       │   │   │   ├── slack-notify.tool.ts   # slack_notify 도구
+│       │   │   │   └── slack-wait.tool.ts     # slack_wait_response 도구
+│       │   │   └── mcp-server.provider.ts     # @modelcontextprotocol/sdk 래퍼
+│       │   └── bridge/                   # 파일 기반 IPC 모듈 [Phase 2]
+│       │       ├── bridge.module.ts      # BridgeModule 정의
+│       │       └── file-bridge.service.ts    # 질문/응답 파일 읽기쓰기
+│       └── tsconfig.app.json            # mcp-server 전용 TS 설정
 │
-├── state/                            # 런타임 상태 (gitignore)
-│   ├── sessions/                     # 세션별 디렉토리 (동적 생성)
-│   └── execution-queue.json          # 원격 실행 큐 (공유)
+├── libs/
+│   └── shared/                           # 공유 라이브러리
+│       └── src/
+│           ├── index.ts                  # 배럴 export (모든 공개 API)
+│           ├── shared.module.ts          # SharedModule (ConfigModule 포함)
+│           ├── config/                   # 설정 관리 (@nestjs/config 기반)
+│           │   ├── configuration.ts      # registerAs() 팩토리 (slack, security, session 등)
+│           │   └── validation.schema.ts  # Joi 스키마 (환경변수 타입/필수값 검증)
+│           ├── types/                    # 공유 TypeScript 타입
+│           │   ├── session.types.ts      # SessionMeta, EnvironmentInfo
+│           │   ├── question.types.ts     # QuestionFile, ResponseFile
+│           │   ├── notification.types.ts # NotificationFile
+│           │   ├── slack.types.ts        # ParsedAction, SlackMessage, ContextInjection
+│           │   └── hook.types.ts         # HookInput, HookOutput
+│           ├── utils/                    # 공유 유틸리티
+│           │   ├── file.utils.ts         # Atomic write, 파일 락킹 (FileLock)
+│           │   ├── action-parser.utils.ts    # action_id 인코딩/파싱
+│           │   └── hook-input.utils.ts       # Hook stdin JSON 파싱
+│           └── constants/                # 상수 정의
+│               └── terminal-icons.ts     # TERMINAL_ICONS 매핑
 │
-├── claudedocs/                       # 설계 문서
+├── hooks/                                # Claude Code Hook 스크립트 (NestJS 외부, 독립 실행)
+│   ├── tsconfig.hooks.json               # Hook 전용 TS 설정 (libs/shared 참조)
+│   ├── on-question-asked.ts              # PreToolUse: 질문 감지 [Phase 4]
+│   ├── on-question-answered.ts           # PostToolUse: 응답 완료 감지 [Phase 4]
+│   ├── on-notification.ts                # Notification: 알림 캡처 [Phase 4]
+│   └── on-stop.ts                        # Stop: 세션 정리 [Phase 4]
+│
+├── state/                                # 런타임 상태 (gitignore)
+│   ├── sessions/                         # 세션별 디렉토리 (동적 생성)
+│   └── execution-queue.json              # 원격 실행 큐 (공유)
+│
+├── claudedocs/                           # 설계 문서
 │   ├── slack-claude-integration-spec.md  # 기존 단일 세션 설계
-│   └── multi-session-design.md          # 본 문서 (멀티세션 설계)
+│   └── multi-session-design.md           # 본 문서 (멀티세션 설계)
 │
 └── .claude/
-    └── agents/                       # Claude Code 에이전트 정의
-        ├── architect.md              # 아키텍처 설계 전문
-        ├── mcp-expert.md             # MCP 프로토콜 전문
-        ├── slack-expert.md           # Slack API 전문
-        ├── scaffolder.md             # 스캐폴딩 전문
-        ├── session-specialist.md     # 세션 관리 전문 (새로 추가)
-        └── hooks-specialist.md       # Hooks 통합 전문 (새로 추가)
+    └── agents/                           # Claude Code 에이전트 정의
+        ├── architect.md                  # 아키텍처 설계 전문
+        ├── mcp-expert.md                 # MCP 프로토콜 전문
+        ├── slack-expert.md               # Slack API 전문
+        ├── scaffolder.md                 # 스캐폴딩 전문
+        ├── session-specialist.md         # 세션 관리 전문 (새로 추가)
+        └── hooks-specialist.md           # Hooks 통합 전문 (새로 추가)
 ```
+
+> **Hook 스크립트가 NestJS 외부에 있는 이유**: Hook은 Claude Code가 직접 `node hooks/on-*.js` 명령으로
+> 실행하는 단발성 스크립트다. NestJS의 DI 컨테이너나 모듈 시스템이 필요하지 않으며, 부트스트랩 오버헤드 없이
+> 즉시 실행되어야 한다. `libs/shared/src/`의 타입과 유틸리티만 import하여 사용한다.
 
 ---
 
@@ -996,7 +1035,7 @@ mcp-slack-bridge/
 ### 11.1 핵심 인터페이스
 
 ```typescript
-// src/types/session.ts
+// libs/shared/src/types/session.types.ts
 
 export interface EnvironmentInfo {
   terminal: 'vscode' | 'warp' | 'windows-terminal' | 'powershell' | 'iterm' | 'cmd' | 'unknown';
@@ -1019,7 +1058,7 @@ export interface SessionMeta {
   slackThreadTs?: string;
 }
 
-// src/types/question.ts
+// libs/shared/src/types/question.types.ts
 
 export interface QuestionFile {
   questionId: string;
@@ -1041,7 +1080,7 @@ export interface ResponseFile {
   source: 'slack_button' | 'slack_text' | 'slack_inject' | 'cli';
 }
 
-// src/types/notification.ts
+// libs/shared/src/types/notification.types.ts
 
 export interface NotificationFile {
   notificationId: string;
@@ -1052,7 +1091,7 @@ export interface NotificationFile {
   slackMessageTs?: string;
 }
 
-// src/types/slack.ts
+// libs/shared/src/types/slack.types.ts
 
 export interface ParsedAction {
   action: 'approve' | 'reject' | 'custom_reply';
@@ -1075,57 +1114,83 @@ export interface ContextInjection {
 
 ### Phase 0: 프로젝트 기반 구축
 ```
-1. TypeScript 프로젝트 초기화 (package.json, tsconfig.json)
-2. 의존성 설치 (@slack/bolt, @modelcontextprotocol/sdk, dotenv, uuid)
+1. NestJS Monorepo 초기화
+   - nest new mcp-slack-bridge --package-manager npm
+   - nest generate app bot-service
+   - nest generate app mcp-server
+   - nest generate library shared
+   - nest-cli.json에 monorepo 프로젝트 등록
+2. 의존성 설치
+   - NestJS: @nestjs/common, @nestjs/core, @nestjs/config, @nestjs/platform-express
+   - 외부: @slack/bolt, @modelcontextprotocol/sdk, uuid, tree-kill, joi
+   - 런타임: reflect-metadata, rxjs
 3. .env.example 작성 (전체 설정 템플릿)
-4. 공유 모듈 구현 (types, config, file-utils, environment, logger)
+4. 공유 라이브러리 구현 (libs/shared/src/)
+   - config/configuration.ts: @nestjs/config registerAs() 팩토리
+   - config/validation.schema.ts: Joi 스키마 (환경변수 검증)
+   - types/*.types.ts: 공유 타입 정의
+   - utils/file.utils.ts: Atomic write, 파일 락킹
+   - utils/action-parser.utils.ts: action_id 인코딩/파싱
+   - utils/hook-input.utils.ts: Hook stdin 파싱
+   - constants/terminal-icons.ts: 환경 아이콘 매핑
+   - shared.module.ts: SharedModule (ConfigModule.forRoot 포함)
+   - index.ts: 배럴 export
 5. state/ 디렉토리 구조 생성 및 .gitignore 설정
-6. 빌드 스크립트 설정
+6. hooks/tsconfig.hooks.json 작성 (libs/shared 경로 참조)
+7. 빌드 스크립트 설정 (nest build bot-service / nest build mcp-server)
 ```
 
 ### Phase 1: 세션 관리 코어
 ```
-1. src/mcp-server/session.ts 구현 (세션 생성, 환경 감지, heartbeat)
-2. src/shared/file-utils.ts 구현 (atomic write, 파일 락킹)
-3. 세션 디렉토리 구조 자동 생성 로직
-4. 세션 등록/해제 수명주기
-5. 단위 테스트: 세션 생성 → heartbeat → 정리
+1. apps/mcp-server/src/session/session.service.ts 구현
+   - 세션 생성 (UUID), 환경 감지, heartbeat 관리
+2. apps/mcp-server/src/session/environment.detector.ts 구현
+   - detectEnvironment(), detectShell() 로직
+3. apps/mcp-server/src/session/session.module.ts 모듈 정의
+4. libs/shared/src/utils/file.utils.ts 구현 (atomic write, FileLock)
+5. 세션 디렉토리 구조 자동 생성 로직
+6. 세션 등록/해제 수명주기
+7. 단위 테스트: 세션 생성 -> heartbeat -> 정리
 ```
 
 ### Phase 2: MCP 서버 (세션 인식)
 ```
-1. src/mcp-server/index.ts 구현 (MCP 서버 + 세션 초기화)
-2. src/mcp-server/tools/slack-ask.ts 구현 (파일 기반 질문/응답)
-3. src/mcp-server/tools/slack-notify.ts 구현
-4. src/mcp-server/bridge/file-bridge.ts 구현
-5. Claude Code에 MCP 서버 등록 테스트
+1. apps/mcp-server/src/main.ts 구현 (stdio 기반 MCP 서버 부트스트랩)
+2. apps/mcp-server/src/app.module.ts 구현 (SessionModule, McpModule, BridgeModule 임포트)
+3. apps/mcp-server/src/mcp/tools/slack-ask.tool.ts 구현 (파일 기반 질문/응답)
+4. apps/mcp-server/src/mcp/tools/slack-notify.tool.ts 구현
+5. apps/mcp-server/src/bridge/file-bridge.service.ts 구현
+6. apps/mcp-server/src/mcp/mcp-server.provider.ts 구현 (SDK 래퍼)
+7. Claude Code에 MCP 서버 등록 테스트
 ```
 
 ### Phase 3: Bot 서비스 (폴링 기반)
 ```
-1. src/bot-service/index.ts 구현 (Bolt 앱 초기화)
-2. src/bot-service/poller.ts 구현 (세션 디렉토리 폴링)
-3. src/bot-service/formatters/* 구현 (메시지 포맷팅)
-4. src/bot-service/handlers/action-handler.ts 구현 (버튼 응답 → 파일 쓰기)
-5. Slack 연결 + 폴링 통합 테스트
+1. apps/bot-service/src/main.ts 구현 (NestFactory.create + Bolt 앱 초기화)
+2. apps/bot-service/src/app.module.ts 구현 (SlackModule, PollerModule 임포트)
+3. apps/bot-service/src/poller/poller.service.ts 구현 (세션 디렉토리 폴링)
+4. apps/bot-service/src/slack/formatters/*.formatter.ts 구현 (메시지 포맷팅)
+5. apps/bot-service/src/slack/handlers/action.handler.ts 구현 (버튼 응답 -> 파일 쓰기)
+6. Slack 연결 + 폴링 통합 테스트
 ```
 
 ### Phase 4: Hook 스크립트
 ```
-1. src/hooks/on-question-asked.ts 구현
-2. src/hooks/on-question-answered.ts 구현
-3. src/hooks/on-notification.ts 구현
-4. src/hooks/on-stop.ts 구현
-5. Claude Code Hook 등록 및 테스트
+1. hooks/on-question-asked.ts 구현
+2. hooks/on-question-answered.ts 구현
+3. hooks/on-notification.ts 구현
+4. hooks/on-stop.ts 구현
+5. hooks/tsconfig.hooks.json으로 빌드 확인
+6. Claude Code Hook 등록 (.claude/settings.json) 및 테스트
 ```
 
 ### Phase 5: Slack 명령어 확장
 ```
-1. /claude-sessions 명령어 구현
+1. /claude-sessions 명령어 구현 (apps/bot-service/src/slack/handlers/command.handler.ts)
 2. /claude-inject 명령어 구현
 3. /claude, /claude-status, /claude-cancel 기존 명령어 세션 인식 업데이트
-4. src/bot-service/services/executor.ts 구현 (원격 실행)
-5. src/bot-service/services/queue.ts 구현 (작업 큐, 파일 락킹)
+4. apps/bot-service/src/executor/executor.service.ts 구현 (원격 실행)
+5. apps/bot-service/src/executor/queue.service.ts 구현 (작업 큐, 파일 락킹)
 ```
 
 ### Phase 6: 안정화 및 배포
@@ -1248,88 +1313,183 @@ LOG_LEVEL=info
 
 ### 13.2 환경변수 → 설정 로딩 코드
 
+NestJS의 `@nestjs/config` 모듈과 `Joi` 검증 스키마를 사용하여 환경변수를 타입 안전하게 로딩한다.
+기존의 수동 `envString()`/`envNumber()`/`envList()` 헬퍼와 `validateConfig()` 함수 대신,
+`ConfigModule.forRoot()`와 `registerAs()` 팩토리 패턴을 사용한다.
+
+#### 13.2.1 Joi 검증 스키마 (`libs/shared/src/config/validation.schema.ts`)
+
 ```typescript
-// src/shared/config.ts
-import { config } from 'dotenv';
-import { resolve } from 'path';
+import * as Joi from 'joi';
 
-config({ path: resolve(__dirname, '../../.env') });
+// ConfigModule.forRoot()의 validationSchema 옵션에 전달
+// 앱 시작 시 자동으로 환경변수를 검증하며, 실패 시 NestJS가 부트스트랩 에러를 발생시킨다.
+export const validationSchema = Joi.object({
+  // [필수] Slack 연결
+  SLACK_BOT_TOKEN: Joi.string().pattern(/^xoxb-/).required()
+    .description('Slack Bot 토큰 (xoxb- 접두사)'),
+  SLACK_APP_TOKEN: Joi.string().pattern(/^xapp-/).required()
+    .description('Slack App 토큰 (xapp- 접두사)'),
+  SLACK_SIGNING_SECRET: Joi.string().optional()
+    .description('Slack Signing Secret'),
+  SLACK_CHANNEL_ID: Joi.string().pattern(/^C/).required()
+    .description('알림 채널 ID (C 접두사)'),
 
-function envString(key: string, fallback: string = ''): string {
-  return process.env[key] || fallback;
+  // [필수] 보안
+  ALLOWED_USER_IDS: Joi.string().required()
+    .description('허용된 Slack 유저 ID (콤마 구분)'),
+  ALLOWED_CHANNEL_IDS: Joi.string().optional().allow('')
+    .description('허용된 채널 ID (콤마 구분, 비워두면 모든 채널)'),
+
+  // [선택] 작업 디렉토리
+  CLAUDE_WORKING_DIR: Joi.string().optional().default(process.cwd()),
+  STATE_DIR: Joi.string().optional().default('./state'),
+
+  // [선택] 보안 필터
+  BLOCKED_COMMANDS: Joi.string().optional()
+    .default('rm -rf,format,del /f,DROP TABLE,DROP DATABASE'),
+  CONFIRM_COMMANDS: Joi.string().optional()
+    .default('git push,git reset,database migration,delete,remove'),
+  MAX_PROMPT_LENGTH: Joi.number().integer().min(100).max(10000).optional().default(2000),
+
+  // [선택] 세션 관리
+  MAX_ACTIVE_SESSIONS: Joi.number().integer().min(1).max(100).optional().default(10),
+  SESSION_TIMEOUT_MS: Joi.number().integer().min(60000).optional().default(3600000),
+  HEARTBEAT_INTERVAL_MS: Joi.number().integer().min(5000).optional().default(30000),
+  STALE_SESSION_MS: Joi.number().integer().min(60000).optional().default(300000),
+
+  // [선택] 폴링
+  POLL_INTERVAL_MS: Joi.number().integer().min(500).max(30000).optional().default(2000),
+
+  // [선택] 실행 큐
+  MAX_CONCURRENT_EXECUTIONS: Joi.number().integer().min(1).max(10).optional().default(1),
+  MAX_QUEUE_SIZE: Joi.number().integer().min(1).max(50).optional().default(5),
+  EXECUTION_TIMEOUT_MS: Joi.number().integer().min(10000).optional().default(600000),
+
+  // [선택] 로깅
+  LOG_LEVEL: Joi.string().valid('debug', 'info', 'warn', 'error').optional().default('info'),
+});
+```
+
+#### 13.2.2 설정 팩토리 (`libs/shared/src/config/configuration.ts`)
+
+```typescript
+import { registerAs } from '@nestjs/config';
+
+// 콤마 구분 문자열을 배열로 변환하는 내부 헬퍼
+function csvToArray(value: string | undefined, fallback: string[] = []): string[] {
+  if (!value) return fallback;
+  return value.split(',').map(s => s.trim()).filter(Boolean);
 }
 
-function envNumber(key: string, fallback: number): number {
-  const val = process.env[key];
-  return val ? Number(val) : fallback;
-}
+export const slackConfig = registerAs('slack', () => ({
+  botToken: process.env.SLACK_BOT_TOKEN,
+  appToken: process.env.SLACK_APP_TOKEN,
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  channelId: process.env.SLACK_CHANNEL_ID,
+}));
 
-function envList(key: string, fallback: string[] = []): string[] {
-  const val = process.env[key];
-  if (!val) return fallback;
-  return val.split(',').map(s => s.trim()).filter(Boolean);
-}
+export const securityConfig = registerAs('security', () => ({
+  allowedUserIds: csvToArray(process.env.ALLOWED_USER_IDS),
+  allowedChannelIds: csvToArray(process.env.ALLOWED_CHANNEL_IDS),
+  blockedCommands: csvToArray(process.env.BLOCKED_COMMANDS,
+    ['rm -rf', 'format', 'del /f', 'DROP TABLE', 'DROP DATABASE']),
+  confirmCommands: csvToArray(process.env.CONFIRM_COMMANDS,
+    ['git push', 'git reset', 'database migration', 'delete', 'remove']),
+  maxPromptLength: parseInt(process.env.MAX_PROMPT_LENGTH || '2000', 10),
+}));
 
-export const CONFIG = {
-  // Slack 연결
-  slack: {
-    botToken:       envString('SLACK_BOT_TOKEN'),
-    appToken:       envString('SLACK_APP_TOKEN'),
-    signingSecret:  envString('SLACK_SIGNING_SECRET'),
-    channelId:      envString('SLACK_CHANNEL_ID'),
-  },
+export const sessionConfig = registerAs('session', () => ({
+  maxActive: parseInt(process.env.MAX_ACTIVE_SESSIONS || '10', 10),
+  timeoutMs: parseInt(process.env.SESSION_TIMEOUT_MS || '3600000', 10),
+  heartbeatMs: parseInt(process.env.HEARTBEAT_INTERVAL_MS || '30000', 10),
+  staleMs: parseInt(process.env.STALE_SESSION_MS || '300000', 10),
+}));
 
-  // 보안
-  security: {
-    allowedUserIds:    envList('ALLOWED_USER_IDS'),
-    allowedChannelIds: envList('ALLOWED_CHANNEL_IDS'),
-    blockedCommands:   envList('BLOCKED_COMMANDS', ['rm -rf', 'format', 'del /f', 'DROP TABLE', 'DROP DATABASE']),
-    confirmCommands:   envList('CONFIRM_COMMANDS', ['git push', 'git reset', 'database migration', 'delete', 'remove']),
-    maxPromptLength:   envNumber('MAX_PROMPT_LENGTH', 2000),
-  },
+export const pollerConfig = registerAs('poller', () => ({
+  intervalMs: parseInt(process.env.POLL_INTERVAL_MS || '2000', 10),
+}));
 
-  // 세션
-  session: {
-    maxActive:       envNumber('MAX_ACTIVE_SESSIONS', 10),
-    timeoutMs:       envNumber('SESSION_TIMEOUT_MS', 3600000),
-    heartbeatMs:     envNumber('HEARTBEAT_INTERVAL_MS', 30000),
-    staleMs:         envNumber('STALE_SESSION_MS', 300000),
-  },
+export const queueConfig = registerAs('queue', () => ({
+  maxConcurrent: parseInt(process.env.MAX_CONCURRENT_EXECUTIONS || '1', 10),
+  maxSize: parseInt(process.env.MAX_QUEUE_SIZE || '5', 10),
+  timeoutMs: parseInt(process.env.EXECUTION_TIMEOUT_MS || '600000', 10),
+}));
 
-  // 폴링
-  pollIntervalMs:    envNumber('POLL_INTERVAL_MS', 2000),
+export const pathsConfig = registerAs('paths', () => ({
+  workingDir: process.env.CLAUDE_WORKING_DIR || process.cwd(),
+  stateDir: process.env.STATE_DIR || './state',
+}));
+```
 
-  // 실행 큐
-  queue: {
-    maxConcurrent:   envNumber('MAX_CONCURRENT_EXECUTIONS', 1),
-    maxSize:         envNumber('MAX_QUEUE_SIZE', 5),
-    timeoutMs:       envNumber('EXECUTION_TIMEOUT_MS', 600000),
-  },
+#### 13.2.3 SharedModule에서 ConfigModule 통합 (`libs/shared/src/shared.module.ts`)
 
-  // 경로
-  paths: {
-    workingDir:      envString('CLAUDE_WORKING_DIR', process.cwd()),
-    stateDir:        envString('STATE_DIR', './state'),
-  },
+```typescript
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { validationSchema } from './config/validation.schema';
+import {
+  slackConfig, securityConfig, sessionConfig,
+  pollerConfig, queueConfig, pathsConfig,
+} from './config/configuration';
 
-  // 로깅
-  logLevel:          envString('LOG_LEVEL', 'info'),
-} as const;
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,                    // 모든 모듈에서 별도 import 없이 사용 가능
+      envFilePath: '.env',               // 프로젝트 루트의 .env 파일 로드
+      validationSchema,                  // Joi 스키마로 시작 시 자동 검증
+      validationOptions: {
+        allowUnknown: true,              // .env에 정의되지 않은 환경변수 허용
+        abortEarly: false,               // 모든 검증 오류를 한번에 출력
+      },
+      load: [                            // registerAs() 팩토리 등록
+        slackConfig,
+        securityConfig,
+        sessionConfig,
+        pollerConfig,
+        queueConfig,
+        pathsConfig,
+      ],
+    }),
+  ],
+  exports: [ConfigModule],
+})
+export class SharedModule {}
+```
 
-// 필수 환경변수 검증 (Bot 서비스 시작 시 호출)
-export function validateConfig(): void {
-  const required = ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN', 'SLACK_CHANNEL_ID', 'ALLOWED_USER_IDS'];
-  const missing = required.filter(key => !process.env[key]);
-  if (missing.length > 0) {
-    console.error(`\n❌ 필수 환경변수가 설정되지 않았습니다:\n`);
-    for (const key of missing) {
-      console.error(`   - ${key}`);
-    }
-    console.error(`\n💡 .env.example 파일을 .env로 복사하고 값을 채워주세요:`);
-    console.error(`   cp .env.example .env\n`);
-    process.exit(1);
+#### 13.2.4 설정 사용 예시
+
+```typescript
+// 기존 방식 (제거됨)
+// ❌ import { CONFIG } from '../shared/config';
+// ❌ if (CONFIG.security.allowedUserIds.includes(userId)) { ... }
+// ❌ validateConfig(); // 수동 검증 호출
+
+// NestJS @nestjs/config 방식
+// ✅ ConfigService DI 주입으로 타입 안전하게 접근
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+
+@Injectable()
+export class SlackGuard {
+  constructor(private configService: ConfigService) {}
+
+  isAllowedUser(userId: string): boolean {
+    const allowedIds = this.configService.get<string[]>('security.allowedUserIds');
+    return allowedIds.includes(userId);
+  }
+
+  getChannelId(): string {
+    return this.configService.get<string>('slack.channelId');
+  }
+
+  getSessionTimeout(): number {
+    return this.configService.get<number>('session.timeoutMs');
   }
 }
+// 환경변수 검증은 ConfigModule.forRoot()의 validationSchema가
+// 앱 부트스트랩 시 자동 수행한다. 필수값 누락 시 NestJS가 에러 메시지와 함께 종료한다.
 ```
 
 ### 13.3 설정 사용 예시
@@ -1339,9 +1499,10 @@ export function validateConfig(): void {
 // ❌ const security = JSON.parse(readFileSync('config/security.json', 'utf8'));
 // ❌ if (security.allowedSlackUsers.includes(userId)) { ... }
 
-// 새 환경변수 방식
-// ✅ import { CONFIG } from '../shared/config';
-// ✅ if (CONFIG.security.allowedUserIds.includes(userId)) { ... }
+// 새 NestJS ConfigService 방식
+// ✅ constructor(private configService: ConfigService) {}
+// ✅ const allowed = this.configService.get<string[]>('security.allowedUserIds');
+// ✅ if (allowed.includes(userId)) { ... }
 ```
 
 ### 13.4 세션 보안
@@ -1355,7 +1516,7 @@ export function validateConfig(): void {
 | 무한 세션 생성 | `MAX_ACTIVE_SESSIONS` 환경변수로 제한 (기본 10) |
 | 응답 위조 | Slack User ID 검증 + `ALLOWED_USER_IDS` 환경변수 |
 | 위험 명령어 | `BLOCKED_COMMANDS` 환경변수로 차단 목록 관리 |
-| 설정 미입력 | `validateConfig()`가 시작 시 필수값 누락을 친절하게 안내 |
+| 설정 미입력 | Joi 검증 스키마가 부트스트랩 시 필수값 누락을 자동 감지하여 에러 출력 |
 
 ---
 
@@ -1461,30 +1622,99 @@ class ErrorRecovery {
 
 ## 17. 의존성 목록
 
+### 17.1 package.json
+
 ```json
 {
   "name": "mcp-slack-bridge",
   "version": "2.0.0",
-  "description": "Slack-Claude Code 멀티세션 통합 시스템",
+  "description": "Slack-Claude Code 멀티세션 통합 시스템 (NestJS Monorepo)",
+  "private": true,
   "dependencies": {
+    "@nestjs/common": "^10.x",
+    "@nestjs/core": "^10.x",
+    "@nestjs/config": "^3.x",
+    "@nestjs/platform-express": "^10.x",
+    "reflect-metadata": "^0.2.x",
+    "rxjs": "^7.x",
+    "joi": "^17.x",
     "@slack/bolt": "^3.x",
     "@modelcontextprotocol/sdk": "^1.x",
-    "dotenv": "^16.x",
     "uuid": "^9.x",
     "tree-kill": "^1.x"
   },
   "devDependencies": {
+    "@nestjs/cli": "^10.x",
+    "@nestjs/schematics": "^10.x",
+    "@nestjs/testing": "^10.x",
     "typescript": "^5.x",
-    "nodemon": "^3.x",
     "@types/node": "^20.x",
-    "@types/uuid": "^9.x"
+    "@types/uuid": "^9.x",
+    "jest": "^29.x",
+    "ts-jest": "^29.x",
+    "@types/jest": "^29.x",
+    "ts-node": "^10.x",
+    "source-map-support": "^0.5.x"
   },
   "scripts": {
-    "build": "tsc",
-    "start:bot": "node dist/bot-service/index.js",
-    "start:mcp": "node dist/mcp-server/index.js",
-    "dev:bot": "nodemon src/bot-service/index.ts",
-    "dev:mcp": "ts-node src/mcp-server/index.ts"
+    "build": "nest build",
+    "build:bot": "nest build bot-service",
+    "build:mcp": "nest build mcp-server",
+    "build:hooks": "tsc -p hooks/tsconfig.hooks.json",
+    "start:bot": "nest start bot-service",
+    "start:mcp": "nest start mcp-server",
+    "start:bot:dev": "nest start bot-service --watch",
+    "start:bot:prod": "node dist/apps/bot-service/main.js",
+    "start:mcp:prod": "node dist/apps/mcp-server/main.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage",
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "lint": "eslint \"{apps,libs}/**/*.ts\" --fix"
+  }
+}
+```
+
+### 17.2 nest-cli.json
+
+```json
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "monorepo": true,
+  "root": "apps/bot-service",
+  "compilerOptions": {
+    "webpack": false,
+    "tsConfigPath": "apps/bot-service/tsconfig.app.json"
+  },
+  "projects": {
+    "bot-service": {
+      "type": "application",
+      "root": "apps/bot-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/bot-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/bot-service/tsconfig.app.json"
+      }
+    },
+    "mcp-server": {
+      "type": "application",
+      "root": "apps/mcp-server",
+      "entryFile": "main",
+      "sourceRoot": "apps/mcp-server/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/mcp-server/tsconfig.app.json"
+      }
+    },
+    "shared": {
+      "type": "library",
+      "root": "libs/shared",
+      "entryFile": "index",
+      "sourceRoot": "libs/shared/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/shared/tsconfig.lib.json"
+      }
+    }
   }
 }
 ```
