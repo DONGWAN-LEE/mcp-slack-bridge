@@ -3,8 +3,9 @@ import { ConfigModule } from '@nestjs/config';
 import {
   sessionConfig,
   pathsConfig,
+  mcpValidationSchema,
 } from '@app/shared';
-import { mcpValidationSchema } from '@app/shared';
+import { SessionModule } from './session/session.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { mcpValidationSchema } from '@app/shared';
         abortEarly: false,
       },
     }),
+    SessionModule,
   ],
 })
 export class AppModule {}

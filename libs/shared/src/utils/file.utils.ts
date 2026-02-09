@@ -8,10 +8,36 @@ import {
   openSync,
   closeSync,
   statSync,
+  utimesSync,
   constants,
 } from 'fs';
 import { join, dirname } from 'path';
 import { randomUUID } from 'crypto';
+
+/**
+ * Ensure a directory exists, creating it recursively if needed.
+ */
+export function ensureDir(dirPath: string): void {
+  mkdirSync(dirPath, { recursive: true });
+}
+
+/**
+ * Touch a file — update its mtime. Creates an empty file if it doesn't exist.
+ */
+export function touchFile(filePath: string): void {
+  try {
+    const now = new Date();
+    utimesSync(filePath, now, now);
+  } catch (e: unknown) {
+    const err = e as NodeJS.ErrnoException;
+    if (err.code === 'ENOENT') {
+      mkdirSync(dirname(filePath), { recursive: true });
+      writeFileSync(filePath, '', 'utf8');
+    } else {
+      throw e;
+    }
+  }
+}
 
 /**
  * Atomic JSON file write using write-then-rename pattern.
