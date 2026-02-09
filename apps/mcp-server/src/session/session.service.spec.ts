@@ -1,6 +1,11 @@
 import { SessionService } from './session.service';
 import { EnvironmentDetector } from './environment.detector';
 import * as fileUtils from '@app/shared/utils/file.utils';
+import { unlinkSync } from 'fs';
+
+jest.mock('fs', () => ({
+  unlinkSync: jest.fn(),
+}));
 
 jest.mock('@app/shared/utils/file.utils', () => ({
   atomicWriteJson: jest.fn(),
@@ -108,6 +113,19 @@ describe('SessionService', () => {
 
       expect(session.claudeSessionId).toBe('claude-abc');
     });
+
+    it('should write .current-session file', () => {
+      service.createSession('/test/project');
+
+      expect(fileUtils.atomicWriteJson).toHaveBeenCalledWith(
+        expect.stringContaining('.current-session'),
+        expect.objectContaining({
+          sessionId: 'test-uuid-1234',
+          projectPath: '/test/project',
+          pid: process.pid,
+        }),
+      );
+    });
   });
 
   describe('heartbeat', () => {
@@ -190,6 +208,41 @@ describe('SessionService', () => {
 
     it('should be safe to call when no session exists', () => {
       expect(() => service.terminateSession()).not.toThrow();
+    });
+
+    it('should delete .current-session when matching session', () => {
+      service.createSession('/test/project');
+
+      // readJsonFile returns matching current-session on second call (first is meta.json)
+      (fileUtils.readJsonFile as jest.Mock).mockImplementation((path: string) => {
+        if (path.includes('.current-session')) {
+          return { sessionId: 'test-uuid-1234' };
+        }
+        return { sessionId: 'test-uuid-1234', status: 'active' };
+      });
+
+      service.terminateSession();
+
+      expect(unlinkSync).toHaveBeenCalledWith(
+        expect.stringContaining('.current-session'),
+      );
+    });
+
+    it('should NOT delete .current-session when different session', () => {
+      service.createSession('/test/project');
+
+      (fileUtils.readJsonFile as jest.Mock).mockImplementation((path: string) => {
+        if (path.includes('.current-session')) {
+          return { sessionId: 'other-session-id' };
+        }
+        return { sessionId: 'test-uuid-1234', status: 'active' };
+      });
+
+      service.terminateSession();
+
+      expect(unlinkSync).not.toHaveBeenCalledWith(
+        expect.stringContaining('.current-session'),
+      );
     });
   });
 
