@@ -102,6 +102,16 @@ export class PollerService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
 
+      // Wait for notification delay before sending to Slack
+      const delaySec = this.pollingCfg.notificationDelaySec;
+      if (delaySec > 0) {
+        const createdMs = new Date(question.createdAt).getTime();
+        const elapsedMs = Date.now() - createdMs;
+        if (elapsedMs < delaySec * 1000) {
+          continue; // Not yet time to notify; will be picked up in a future poll
+        }
+      }
+
       sessionKnown.add(question.questionId);
       this.knownQuestions.set(sessionId, sessionKnown);
       await this.handleNewQuestion(sessionId, sessionDir, meta, metaPath, question, questionPath);
