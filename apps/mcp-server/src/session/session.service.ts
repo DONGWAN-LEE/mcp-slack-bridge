@@ -10,7 +10,12 @@ import { execSync } from 'child_process';
 import { join, basename } from 'path';
 import { SessionMeta } from '@app/shared/types/session.types';
 import { sessionConfig, pathsConfig } from '@app/shared/config/configuration';
-import { atomicWriteJson, ensureDir, touchFile } from '@app/shared/utils/file.utils';
+import {
+  atomicWriteJson,
+  readJsonFile,
+  ensureDir,
+  touchFile,
+} from '@app/shared/utils/file.utils';
 import { EnvironmentDetector } from './environment.detector';
 
 @Injectable()
@@ -95,7 +100,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       this.heartbeatTimer = null;
     }
 
-    // Update meta with terminated status
+    // Read-merge-write to preserve Bot-written fields (e.g. slackThreadTs)
     const sessionDir = join(
       this.pathsCfg.stateDir,
       'sessions',
@@ -103,11 +108,14 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     );
     const metaPath = join(sessionDir, 'meta.json');
 
-    this.currentSession.status = 'terminated';
-    this.currentSession.lastActiveAt = new Date().toISOString();
-
     try {
-      atomicWriteJson(metaPath, this.currentSession);
+      const existing = readJsonFile<SessionMeta>(metaPath);
+      const updated: SessionMeta = {
+        ...(existing || this.currentSession),
+        status: 'terminated',
+        lastActiveAt: new Date().toISOString(),
+      };
+      atomicWriteJson(metaPath, updated);
       console.error(`[Session] Terminated: ${this.currentSession.sessionId}`);
     } catch (e) {
       console.error(`[Session] Failed to write terminated status: ${e}`);
@@ -128,8 +136,16 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       if (!this.currentSession) return;
       try {
         touchFile(heartbeatPath);
-        this.currentSession.lastActiveAt = new Date().toISOString();
-        atomicWriteJson(metaPath, this.currentSession);
+
+        // Read-merge-write to preserve Bot-written fields (e.g. slackThreadTs)
+        const existing = readJsonFile<SessionMeta>(metaPath);
+        const updated: SessionMeta = {
+          ...(existing || this.currentSession),
+          lastActiveAt: new Date().toISOString(),
+          status: this.currentSession.status,
+        };
+        atomicWriteJson(metaPath, updated);
+        this.currentSession = updated;
       } catch (e) {
         console.error(`[Session] Heartbeat failed: ${e}`);
       }

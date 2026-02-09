@@ -23,7 +23,7 @@ describe('PollerService', () => {
   let slackService: any;
 
   const pathsCfg = { stateDir: './state', workingDir: '.' };
-  const pollingCfg = { intervalMs: 2000 };
+  const pollingCfg = { intervalMs: 2000, notificationDelaySec: 0 };
   const sessionCfg = {
     maxActive: 10,
     timeoutMs: 3600000,
@@ -236,6 +236,136 @@ describe('PollerService', () => {
     await Promise.resolve();
 
     expect(slackService.postMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('should delay question notification when notificationDelaySec > 0', async () => {
+    // Create a new service with 60 second delay
+    const delayService = new PollerService(
+      slackService,
+      pathsCfg as any,
+      { intervalMs: 2000, notificationDelaySec: 60 } as any,
+      sessionCfg as any,
+    );
+
+    mockReaddirSync.mockImplementation((dir: string, opts?: any) => {
+      if (dir.endsWith('sessions')) {
+        if (opts?.withFileTypes) {
+          return [{ name: 'sess-delay', isDirectory: () => true }];
+        }
+        return ['sess-delay'];
+      }
+      if (dir.includes('questions')) return ['q-delay.json'];
+      if (dir.includes('notifications')) return [];
+      return [];
+    });
+
+    const meta = {
+      sessionId: 'sess-delay',
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      environment: { terminal: 'vscode', displayName: 'VS Code' },
+      projectName: 'test',
+      projectPath: '/test',
+      slackThreadTs: '100.200',
+    };
+
+    // Question created "now" — within the 60s delay window
+    const question = {
+      questionId: 'q-delay',
+      sessionId: 'sess-delay',
+      question: 'Deploy?',
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      timeout: 1800000,
+    };
+
+    (fileUtils.readJsonFile as jest.Mock).mockImplementation((path: string) => {
+      if (path.includes('meta.json')) return meta;
+      if (path.includes('q-delay.json')) return question;
+      return null;
+    });
+
+    mockStatSync.mockReturnValue({ mtimeMs: Date.now() });
+
+    delayService.onModuleInit();
+
+    // First poll at t=2s — question is only ~2s old, delay is 60s → should NOT send
+    await jest.advanceTimersByTimeAsync(2000);
+
+    expect(slackService.postMessage).not.toHaveBeenCalled();
+
+    // Advance past the 60s delay (total ~62s from start)
+    await jest.advanceTimersByTimeAsync(60000);
+
+    expect(slackService.postMessage).toHaveBeenCalled();
+
+    delayService.onModuleDestroy();
+  });
+
+  it('should skip notification when question is answered before delay expires', async () => {
+    const delayService = new PollerService(
+      slackService,
+      pathsCfg as any,
+      { intervalMs: 2000, notificationDelaySec: 60 } as any,
+      sessionCfg as any,
+    );
+
+    mockReaddirSync.mockImplementation((dir: string, opts?: any) => {
+      if (dir.endsWith('sessions')) {
+        if (opts?.withFileTypes) {
+          return [{ name: 'sess-skip', isDirectory: () => true }];
+        }
+        return ['sess-skip'];
+      }
+      if (dir.includes('questions')) return ['q-skip.json'];
+      if (dir.includes('notifications')) return [];
+      return [];
+    });
+
+    const meta = {
+      sessionId: 'sess-skip',
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      environment: { terminal: 'vscode', displayName: 'VS Code' },
+      projectName: 'test',
+      projectPath: '/test',
+      slackThreadTs: '100.200',
+    };
+
+    const question = {
+      questionId: 'q-skip',
+      sessionId: 'sess-skip',
+      question: 'Deploy?',
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      timeout: 1800000,
+    };
+
+    (fileUtils.readJsonFile as jest.Mock).mockImplementation((path: string) => {
+      if (path.includes('meta.json')) return meta;
+      if (path.includes('q-skip.json')) return question;
+      return null;
+    });
+
+    mockStatSync.mockReturnValue({ mtimeMs: Date.now() });
+
+    delayService.onModuleInit();
+
+    // First poll — within delay, not sent
+    await jest.advanceTimersByTimeAsync(2000);
+
+    expect(slackService.postMessage).not.toHaveBeenCalled();
+
+    // User answers locally — question status changes to 'answered'
+    question.status = 'answered';
+
+    // Advance past the delay
+    await jest.advanceTimersByTimeAsync(60000);
+
+    // Should NOT send because question.status is no longer 'pending'
+    expect(slackService.postMessage).not.toHaveBeenCalled();
+
+    delayService.onModuleDestroy();
   });
 
   it('should terminate stale sessions', async () => {
