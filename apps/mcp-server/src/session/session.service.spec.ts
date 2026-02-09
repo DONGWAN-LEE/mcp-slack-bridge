@@ -4,6 +4,7 @@ import * as fileUtils from '@app/shared/utils/file.utils';
 
 jest.mock('@app/shared/utils/file.utils', () => ({
   atomicWriteJson: jest.fn(),
+  readJsonFile: jest.fn(),
   ensureDir: jest.fn(),
   touchFile: jest.fn(),
 }));
@@ -123,7 +124,10 @@ describe('SessionService', () => {
     });
 
     it('should update meta.json lastActiveAt on heartbeat', () => {
-      service.createSession('/test/project');
+      const session = service.createSession('/test/project');
+
+      // readJsonFile returns existing meta (simulating file on disk)
+      (fileUtils.readJsonFile as jest.Mock).mockReturnValue({ ...session });
 
       const initialWriteCalls = (fileUtils.atomicWriteJson as jest.Mock).mock.calls.length;
 
@@ -133,11 +137,31 @@ describe('SessionService', () => {
         initialWriteCalls,
       );
     });
+
+    it('should preserve Bot-written fields like slackThreadTs on heartbeat', () => {
+      const session = service.createSession('/test/project');
+
+      // Simulate Bot having written slackThreadTs to meta.json
+      (fileUtils.readJsonFile as jest.Mock).mockReturnValue({
+        ...session,
+        slackThreadTs: '1234.5678',
+      });
+
+      jest.advanceTimersByTime(30000);
+
+      const writeCalls = (fileUtils.atomicWriteJson as jest.Mock).mock.calls;
+      const lastMeta = writeCalls[writeCalls.length - 1][1];
+      expect(lastMeta.slackThreadTs).toBe('1234.5678');
+      expect(lastMeta.status).toBe('active');
+    });
   });
 
   describe('terminateSession', () => {
     it('should update status to terminated', () => {
-      service.createSession('/test/project');
+      const session = service.createSession('/test/project');
+
+      // readJsonFile returns existing meta (simulating file on disk)
+      (fileUtils.readJsonFile as jest.Mock).mockReturnValue({ ...session });
 
       service.terminateSession();
 
