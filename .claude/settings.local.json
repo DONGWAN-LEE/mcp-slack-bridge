@@ -1,0 +1,105 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__filesystem__list_directory",
+      "mcp__filesystem__directory_tree",
+      "WebSearch",
+      "mcp__filesystem__read_multiple_files",
+      "WebFetch(domain:docs.slack.dev)",
+      "WebFetch(domain:api.slack.com)",
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd multi-session design document and update agent definitions\n\n- Create claudedocs/multi-session-design.md with full multi-session architecture\n  covering session isolation, file-based IPC, environment detection, Slack routing,\n  Hook integration, and phased implementation plan \\(Phase 0-6\\)\n- Update 4 existing agents \\(architect, mcp-expert, slack-expert, scaffolder\\)\n  with multi-session knowledge and patterns\n- Create 2 new agents \\(session-specialist, hooks-specialist\\)\n  for session lifecycle management and Claude Code Hooks integration\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nMigrate all JSON config files to .env environment variables\n\n- Remove config/security.json and config/default.json in favor of .env\n- Remove state/config.json runtime config\n- Add comprehensive .env.example with Korean comments for beginners\n- Add CONFIG loader \\(src/shared/config.ts\\) with envString/envNumber/envList helpers\n- Add validateConfig\\(\\) that shows friendly error on missing required vars\n- Update directory structure, Phase 0, and comparison table accordingly\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(where:*)",
+      "Bash(git remote get-url:*)",
+      "Bash(winget install:*)",
+      "Bash(\"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" auth status)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_close",
+      "Bash(\"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" auth login --with-token)",
+      "Bash(\"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" pr create --title \"Add multi-session design and agent definitions\" --body \"$\\(cat <<''EOF''\n## Summary\n- **멀티세션 설계 문서** \\(`claudedocs/multi-session-design.md`\\) 신규 작성: VS Code, Warp, Windows Terminal, PowerShell 등 다양한 환경에서 동시 실행되는 Claude Code 세션을 Slack으로 통합 관리하는 아키텍처 설계\n- **기존 에이전트 4개 업데이트** \\(`architect`, `mcp-expert`, `slack-expert`, `scaffolder`\\): 멀티세션 아키텍처 지식, 세션 수명주기, action_id 라우팅, 세션 인식 도구 템플릿 추가\n- **신규 에이전트 2개 생성** \\(`session-specialist`, `hooks-specialist`\\): 세션 관리 전문 에이전트, Claude Code Hooks 통합 전문 에이전트\n- **설정 방식 개선**: JSON 설정 파일 → `.env` 환경변수로 통합 \\(초보자 친화적\\)\n\n## 핵심 설계\n- **세션 격리**: 각 MCP 인스턴스가 독립 디렉토리\\(`state/sessions/{uuid}/`\\) 사용\n- **파일 기반 IPC**: MCP ↔ Bot 서비스 간 파일 시스템 기반 통신\n- **환경 감지**: `TERM_PROGRAM`, `VSCODE_PID`, `WT_SESSION` 등으로 실행 환경 식별\n- **Thread-per-session**: Slack에서 세션별 고유 스레드로 메시지 정리\n- **Atomic write + 파일 락킹**: 동시성 안전한 상태 관리\n- **`.env` 기반 설정**: JSON 설정 파일 없이 `.env` 하나로 전체 설정 관리\n\n## Test plan\n- [x] 에이전트 파일 YAML 프론트매터 형식 검증 \\(name/description/tools/model\\)\n- [x] 설계 문서가 기존 spec의 3가지 기능을 멀티세션으로 확장\n- [x] 환경 감지 로직이 각 터미널별 올바른 환경변수 참조\n- [x] Windows 호환성 \\(경로, atomic write, 프로세스 관리\\)\n- [x] 에이전트 description이 구체적이고 자동 선택 가능\n- [x] 코드 리뷰 Agent로 자동 리뷰 완료 \\(Critical 0건\\)\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\nEOF\n\\)\")",
+      "Bash(\"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" auth logout --hostname github.com)",
+      "Bash(\"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" api repos/DONGWAN-LEE/mcp-slack-bridge)",
+      "Bash(\"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" pr create --title \"Add multi-session design and agent definitions\" --body \"$\\(cat <<''EOF''\n## Summary\n- **멀티세션 설계 문서** \\(`claudedocs/multi-session-design.md`\\) 신규 작성\n- **기존 에이전트 4개 업데이트** \\(`architect`, `mcp-expert`, `slack-expert`, `scaffolder`\\)\n- **신규 에이전트 2개 생성** \\(`session-specialist`, `hooks-specialist`\\)\n- **설정 방식 개선**: JSON 설정 파일 → `.env` 환경변수로 통합 \\(초보자 친화적\\)\n\n## 핵심 설계\n- **세션 격리**: 각 MCP 인스턴스가 독립 디렉토리\\(`state/sessions/{uuid}/`\\) 사용\n- **파일 기반 IPC**: MCP ↔ Bot 서비스 간 파일 시스템 기반 통신\n- **환경 감지**: `TERM_PROGRAM`, `VSCODE_PID`, `WT_SESSION` 등으로 실행 환경 식별\n- **Thread-per-session**: Slack에서 세션별 고유 스레드로 메시지 정리\n- **`.env` 기반 설정**: JSON 없이 `.env` 하나로 전체 설정 관리\n\n## Test plan\n- [x] 에이전트 YAML 프론트매터 형식 검증\n- [x] 기존 spec 3가지 기능 멀티세션 확장 확인\n- [x] Windows 호환성 검증\n- [x] 코드 리뷰 Agent 자동 리뷰 완료 \\(Critical 0건\\)\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\nEOF\n\\)\")",
+      "Bash(\"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" pr merge 1 --merge)",
+      "Bash(git pull:*)",
+      "mcp__filesystem__read_text_file",
+      "Bash(git commit:*)",
+      "Bash(npm install:*)",
+      "Bash(nest:*)",
+      "Bash(npx nest build:*)",
+      "Bash(npx tsc:*)",
+      "Bash(timeout 5 npx nest start:*)",
+      "Bash(node -e:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(npx jest:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(test:*)",
+      "Bash(npm run build:bot:*)",
+      "Bash(npx nest start:*)",
+      "Bash(claude mcp:*)",
+      "Bash(npm run build:all:*)",
+      "Bash(done)",
+      "mcp__slack-bridge__slack_notify",
+      "mcp__slack-bridge__slack_ask",
+      "Bash(ls:*)",
+      "Bash(gh pr edit:*)",
+      "Bash(npm run build:hooks:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node dist/hooks/hooks/on-question-asked.js"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node dist/hooks/hooks/on-question-answered.js"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node dist/hooks/hooks/on-notification.js"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node dist/hooks/hooks/on-stop.js"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "code-simplifier@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true
+  }
+}
