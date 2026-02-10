@@ -9,6 +9,7 @@ Slack-Claude Code 멀티세션 통합 시스템.
 - **Slack 응답** - Slack 버튼 또는 텍스트로 Claude Code에 직접 응답
 - **알림 전송** - 작업 완료, 에러 등 단방향 알림을 Slack으로 전송
 - **세션 관리** - 멀티세션 환경에서 각 세션을 독립적으로 추적/관리
+- **세션 리모트 커맨드** - Slack 쓰레드에서 기존 Claude Code 세션에 직접 명령 전달
 
 ## 아키텍처
 
@@ -23,6 +24,8 @@ Slack-Claude Code 멀티세션 통합 시스템.
                     - 2초마다 state/sessions/ 폴링
                     - 새 질문 발견 → Slack 메시지 발송
                     - 버튼 응답 → 해당 세션에 response 기록
+                    - 새 세션 감지 → Slack 쓰레드 자동 생성
+                    - 명령 결과 감지 → 쓰레드에 결과 게시
                                     ↕
                               Slack API (Socket Mode)
 ```
@@ -286,6 +289,33 @@ Slack으로 알림을 보냅니다. 응답을 기다리지 않습니다.
 | `questionId` | string | O | 응답을 기다릴 질문 ID |
 | `timeout` | number | X | 응답 대기 시간 (ms, 기본 30분) |
 
+### `slack_check_commands` - Slack 명령 수신
+
+Slack 세션 쓰레드에서 전달된 명령을 확인합니다. 블로킹 모드에서는 새 명령이 올 때까지 대기합니다.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| `blocking` | boolean | X | 블로킹 모드 (기본 true, false이면 즉시 반환) |
+| `timeout` | number | X | 블로킹 타임아웃 (ms, 기본 5분) |
+
+```
+Slack 쓰레드 멘션 → Bot → commands/ 파일 생성 → MCP 폴링으로 명령 수신 → Claude Code 실행
+```
+
+### `slack_command_result` - 명령 실행 결과 보고
+
+실행한 명령의 결과를 Slack 세션 쓰레드에 보고합니다.
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| `commandId` | string | O | 실행한 명령 ID |
+| `result` | string | O | 실행 결과 텍스트 |
+| `status` | `"success"` \| `"error"` | X | 결과 상태 (기본 success) |
+
+```
+Claude Code 실행 완료 → command-results/ 파일 생성 → Bot 폴링으로 감지 → Slack 쓰레드에 결과 게시
+```
+
 ## Slack 명령어
 
 ### `/claude` - Claude Code 원격 실행
@@ -314,6 +344,33 @@ Slack으로 알림을 보냅니다. 응답을 기다리지 않습니다.
 
 > **주의**: Thread Control은 쓰레드 내부에서만 작동합니다. 쓰레드 밖의 멘션은 무시됩니다.
 
+### 세션 리모트 커맨드 (Session Remote Command)
+
+Bot이 활성 Claude Code 세션을 자동 감지하여 Slack에 세션 쓰레드를 생성합니다. 해당 쓰레드에서 `@claude` 멘션으로 **기존 세션에 직접 명령을 전달**할 수 있습니다.
+
+| 명령 | 설명 |
+|------|------|
+| `@claude status` | 세션 상태 조회 (환경, 가동 시간 등) |
+| `@claude <명령>` | 해당 세션에 명령 전달 (Claude Code가 실행) |
+
+**데이터 흐름:**
+```
+[Bot 시작 / 2초 폴링]
+  → state/sessions/ 스캔 → 새 세션 발견 → Slack에 세션 쓰레드 게시
+
+[세션 쓰레드에서 @claude 프로젝트 분석해줘]
+  → Bot → commands/cmd-{ts}.json 생성 → "명령이 전달되었습니다" 확인
+
+[Claude Code: slack_check_commands 호출]
+  → 보류 명령 수신 → 실행 → slack_command_result 호출
+
+[Bot 폴링]
+  → command-results/ 감지 → 세션 쓰레드에 결과 게시
+
+[세션 종료]
+  → 쓰레드에 "세션이 종료되었습니다" 메시지
+```
+
 ### 기타 명령어
 
 | 명령 | 설명 |
@@ -333,7 +390,7 @@ mcp-slack-bridge/
 │   │       ├── main.ts
 │   │       ├── app.module.ts
 │   │       ├── slack/            # Slack 연동 모듈
-│   │       ├── poller/           # 세션 디렉토리 폴링
+│   │       ├── poller/           # 세션 디렉토리 폴링 + 세션 쓰레드 관리
 │   │       ├── executor/         # 원격 실행 + 쓰레드 제어
 │   │       └── wizard/           # Setup Wizard (웹 기반 설정)
 │   │
@@ -342,7 +399,7 @@ mcp-slack-bridge/
 │           ├── main.ts
 │           ├── app.module.ts
 │           ├── session/          # 세션 관리
-│           ├── mcp/              # MCP 도구 (ask, notify, wait)
+│           ├── mcp/              # MCP 도구 (ask, notify, wait, check_commands, command_result)
 │           └── bridge/           # 파일 기반 IPC
 │
 ├── libs/
@@ -359,7 +416,9 @@ mcp-slack-bridge/
 │       ├── heartbeat             # Heartbeat (mtime 기반)
 │       ├── questions/            # 대기 중인 질문
 │       ├── responses/            # Bot이 기록한 응답
-│       └── notifications/        # 알림 메시지
+│       ├── notifications/        # 알림 메시지
+│       ├── commands/             # Slack에서 전달된 명령
+│       └── command-results/      # 명령 실행 결과
 │
 ├── claudedocs/                   # 설계 문서
 ├── .env.example                  # 환경변수 템플릿
@@ -393,6 +452,7 @@ npm run test:cov
 | Phase 5 | Slack 명령어 확장 (원격 실행, 세션 관리) | ✅ 완료 |
 | Thread Control | 쓰레드 기반 실시간 작업 제어 (@mention) | ✅ 완료 |
 | Setup Wizard | 웹 기반 초기 설정 가이드 | ✅ 완료 |
+| Session Remote Command | Slack → 기존 Claude Code 세션 명령 전달 | ✅ 완료 |
 | Phase 6 | 안정화 및 배포 (모니터링, 문서화, CI/CD) | 미구현 |
 
 ## 라이선스
