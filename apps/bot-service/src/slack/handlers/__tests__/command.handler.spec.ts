@@ -66,6 +66,50 @@ describe('CommandHandler', () => {
     });
   });
 
+  describe('parseMode (static)', () => {
+    it('should parse plan mode', () => {
+      const result = CommandHandler.parseMode('plan 아키텍처를 설계해줘');
+      expect(result.mode).toBe('plan');
+      expect(result.prompt).toBe('아키텍처를 설계해줘');
+    });
+
+    it('should parse brainstorm mode', () => {
+      const result = CommandHandler.parseMode('brainstorm 새로운 기능 아이디어');
+      expect(result.mode).toBe('brainstorm');
+      expect(result.prompt).toBe('새로운 기능 아이디어');
+    });
+
+    it('should parse analyze mode', () => {
+      const result = CommandHandler.parseMode('analyze 코드 분석해줘');
+      expect(result.mode).toBe('analyze');
+      expect(result.prompt).toBe('코드 분석해줘');
+    });
+
+    it('should parse review mode', () => {
+      const result = CommandHandler.parseMode('review PR 검토해줘');
+      expect(result.mode).toBe('review');
+      expect(result.prompt).toBe('PR 검토해줘');
+    });
+
+    it('should default mode for regular prompt', () => {
+      const result = CommandHandler.parseMode('add email column');
+      expect(result.mode).toBe('default');
+      expect(result.prompt).toBe('add email column');
+    });
+
+    it('should be case insensitive for mode', () => {
+      const result = CommandHandler.parseMode('Plan 아키텍처를 설계해줘');
+      expect(result.mode).toBe('plan');
+      expect(result.prompt).toBe('아키텍처를 설계해줘');
+    });
+
+    it('should return empty prompt when only mode word', () => {
+      const result = CommandHandler.parseMode('plan');
+      expect(result.mode).toBe('plan');
+      expect(result.prompt).toBe('');
+    });
+  });
+
   describe('/claude', () => {
     it('should reject unauthorized users', async () => {
       mockSlackService.isAllowedUser.mockReturnValue(false);
@@ -92,6 +136,18 @@ describe('CommandHandler', () => {
       );
     });
 
+    it('should show warning for mode-only input', async () => {
+      const respond = jest.fn();
+      const ack = jest.fn();
+
+      const fn = registeredCommands.get('/claude')!;
+      await fn({ command: { user_id: 'U123', text: 'plan' }, ack, respond });
+
+      expect(respond).toHaveBeenCalledWith(
+        expect.objectContaining({ text: expect.stringContaining('프롬프트를 입력') }),
+      );
+    });
+
     it('should reject invalid prompt', async () => {
       mockExecutorService.validatePrompt.mockReturnValue({ valid: false, reason: 'blocked' });
       const respond = jest.fn();
@@ -105,16 +161,37 @@ describe('CommandHandler', () => {
       );
     });
 
-    it('should submit valid job', async () => {
+    it('should submit valid job with default mode', async () => {
       const respond = jest.fn();
       const ack = jest.fn();
 
       const fn = registeredCommands.get('/claude')!;
-      await fn({ command: { user_id: 'U123', text: 'add email column' }, ack, respond });
+      await fn({ command: { user_id: 'U123', text: 'add email column', channel_id: 'C123' }, ack, respond });
 
-      expect(mockExecutorService.submitJob).toHaveBeenCalledWith('add email column', 'U123');
+      expect(mockExecutorService.submitJob).toHaveBeenCalledWith(
+        'add email column',
+        'U123',
+        { channel: 'C123', mode: 'default' },
+      );
       expect(respond).toHaveBeenCalledWith(
         expect.objectContaining({ text: expect.stringContaining('큐에 추가') }),
+      );
+    });
+
+    it('should submit job with plan mode', async () => {
+      const respond = jest.fn();
+      const ack = jest.fn();
+
+      const fn = registeredCommands.get('/claude')!;
+      await fn({ command: { user_id: 'U123', text: 'plan 아키텍처 설계해줘', channel_id: 'C123' }, ack, respond });
+
+      expect(mockExecutorService.submitJob).toHaveBeenCalledWith(
+        '아키텍처 설계해줘',
+        'U123',
+        { channel: 'C123', mode: 'plan' },
+      );
+      expect(respond).toHaveBeenCalledWith(
+        expect.objectContaining({ text: expect.stringContaining('Plan Mode') }),
       );
     });
   });
