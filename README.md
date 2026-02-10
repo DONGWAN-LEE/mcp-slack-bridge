@@ -88,7 +88,38 @@ Slack-Claude Code 멀티세션 통합 시스템.
 1. 좌측 메뉴 **Features → Interactivity & Shortcuts**
 2. **Interactivity** 토글 ON (Socket Mode이므로 Request URL 불필요)
 
-### 6. 채널에 Bot 초대
+### 6. Slash Commands 등록
+
+1. 좌측 메뉴 **Features → Slash Commands**
+2. **Create New Command** 클릭 후 아래 명령어들을 등록:
+
+| Command | Short Description |
+|---------|-------------------|
+| `/claude` | Claude Code에 프롬프트 전송 |
+| `/claude-sessions` | 활성 세션 목록 조회 |
+| `/claude-inject` | 세션에 컨텍스트 주입 |
+| `/claude-status` | 실행 큐 상태 조회 |
+| `/claude-cancel` | 실행 중인 작업 취소 |
+
+> Socket Mode를 사용하므로 **Request URL**은 아무 값(예: `https://localhost`)을 넣으면 됩니다.
+
+### 7. Event Subscriptions 설정 (Thread Control)
+
+쓰레드에서 `@claude stop`, `@claude status` 등의 멘션 명령을 사용하려면 Event Subscription 설정이 필요합니다.
+
+1. 좌측 메뉴 **Features → Event Subscriptions**
+2. **Enable Events** 토글 ON
+3. **Subscribe to bot events** 섹션에서 **Add Bot User Event** 클릭
+4. `app_mention` 이벤트 추가
+5. 페이지 하단 **Save Changes** 클릭
+
+> `app_mention` 이벤트를 추가하면 **OAuth & Permissions**에 `app_mentions:read` scope가 자동 추가됩니다. 변경 후 앱을 Workspace에 **재설치**(Reinstall)해야 적용됩니다.
+
+**앱 재설치 방법:**
+1. 좌측 메뉴 **Settings → Install App**
+2. **Reinstall to Workspace** 클릭 → 권한 승인
+
+### 8. 채널에 Bot 초대
 
 ```
 /invite @Claude Code Bridge
@@ -101,8 +132,27 @@ Slack-Claude Code 멀티세션 통합 시스템.
 ```bash
 # 의존성 설치
 npm install
+```
 
-# 환경변수 파일 생성
+### Setup Wizard (자동 설정)
+
+`.env` 파일이 없는 상태에서 Bot 서비스를 시작하면 **Setup Wizard**가 자동으로 실행됩니다.
+
+```bash
+npm run start:bot
+# → .env 파일이 없으면 브라우저에서 Setup Wizard가 열림 (http://localhost:3456)
+# → .env 파일이 있으면 Wizard를 건너뛰고 바로 서비스 시작
+```
+
+Wizard에서 Slack 토큰, 채널 ID, 사용자 ID 등을 입력하면 `.env` 파일이 자동 생성됩니다.
+
+> **참고**: `.env` 파일이 이미 존재하면 Wizard는 실행되지 않습니다. 설정을 다시 변경하려면 `.env` 파일을 삭제하거나 직접 편집하세요. `SKIP_WIZARD=true` 또는 `NODE_ENV=production` 환경에서도 Wizard가 건너뛰어집니다.
+
+### 수동 설정
+
+Wizard를 사용하지 않으려면 수동으로 `.env` 파일을 생성합니다:
+
+```bash
 cp .env.example .env
 ```
 
@@ -236,6 +286,43 @@ Slack으로 알림을 보냅니다. 응답을 기다리지 않습니다.
 | `questionId` | string | O | 응답을 기다릴 질문 ID |
 | `timeout` | number | X | 응답 대기 시간 (ms, 기본 30분) |
 
+## Slack 명령어
+
+### `/claude` - Claude Code 원격 실행
+
+```
+/claude [모드] <프롬프트>
+```
+
+| 모드 | 설명 | 예시 |
+|------|------|------|
+| (없음) | 기본 실행 | `/claude user 테이블에 email 컬럼 추가해줘` |
+| `plan` | 계획 모드 | `/claude plan 아키텍처를 설계해줘` |
+| `brainstorm` | 브레인스톰 모드 | `/claude brainstorm 새 기능 아이디어` |
+| `analyze` | 분석 모드 | `/claude analyze 코드 분석해줘` |
+| `review` | 리뷰 모드 | `/claude review PR 검토해줘` |
+
+### Thread Control (쓰레드 명령)
+
+`/claude` 명령으로 작업이 시작되면, 해당 메시지의 **쓰레드 안에서** `@claude` 멘션으로 작업을 제어할 수 있습니다.
+
+| 명령 | 설명 |
+|------|------|
+| `@claude stop` | 실행 중인 작업을 중지하고 대기 상태로 전환 |
+| `@claude status` | 현재 작업의 상태를 조회 |
+| `@claude <새 프롬프트>` | 같은 쓰레드에서 새 작업을 시작 |
+
+> **주의**: Thread Control은 쓰레드 내부에서만 작동합니다. 쓰레드 밖의 멘션은 무시됩니다.
+
+### 기타 명령어
+
+| 명령 | 설명 |
+|------|------|
+| `/claude-sessions` | 활성 세션 목록 조회 |
+| `/claude-inject <세션ID> <메시지>` | 특정 세션에 컨텍스트 주입 |
+| `/claude-status` | 실행 큐 상태 (실행 중/대기 중) |
+| `/claude-cancel [작업ID]` | 실행 중인 작업 취소 |
+
 ## 프로젝트 구조
 
 ```
@@ -247,7 +334,8 @@ mcp-slack-bridge/
 │   │       ├── app.module.ts
 │   │       ├── slack/            # Slack 연동 모듈
 │   │       ├── poller/           # 세션 디렉토리 폴링
-│   │       └── executor/         # 원격 실행 (Phase 5)
+│   │       ├── executor/         # 원격 실행 + 쓰레드 제어
+│   │       └── wizard/           # Setup Wizard (웹 기반 설정)
 │   │
 │   └── mcp-server/               # MCP 서버 (stdio)
 │       └── src/
@@ -301,8 +389,10 @@ npm run test:cov
 | Phase 1 | 세션 관리 코어 (세션 생성, 환경 감지, heartbeat) | ✅ 완료 |
 | Phase 2 | MCP 서버 (stdio 기반, 3개 도구 구현) | ✅ 완료 |
 | Phase 3 | Bot 서비스 (폴링 기반 Slack 연동) | ✅ 완료 |
-| Phase 4 | Hook 스크립트 (Claude Code 이벤트 연동) | 미구현 |
-| Phase 5 | Slack 명령어 확장 (원격 실행, 세션 관리) | 미구현 |
+| Phase 4 | Hook 스크립트 (Claude Code 이벤트 연동) | ✅ 완료 |
+| Phase 5 | Slack 명령어 확장 (원격 실행, 세션 관리) | ✅ 완료 |
+| Thread Control | 쓰레드 기반 실시간 작업 제어 (@mention) | ✅ 완료 |
+| Setup Wizard | 웹 기반 초기 설정 가이드 | ✅ 완료 |
 | Phase 6 | 안정화 및 배포 (모니터링, 문서화, CI/CD) | 미구현 |
 
 ## 라이선스

@@ -6,7 +6,6 @@ import { spawn } from 'child_process';
 import { AppModule } from './app.module';
 import { WizardServer } from './wizard/wizard.server';
 import { parseEnvFile } from './wizard/generators/env.generator';
-import { WizardMode } from './wizard/wizard.types';
 
 const WIZARD_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -34,14 +33,10 @@ async function checkEnvOrWizard(logger: Logger): Promise<void> {
   const envPath = join(projectRoot, '.env');
   const hasEnv = existsSync(envPath);
 
-  let mode: WizardMode;
-  let existingEnv: Record<string, string> = {};
-
+  // .env 파일이 이미 존재하면 wizard를 건너뛰고 바로 시작
   if (hasEnv) {
-    existingEnv = parseEnvFile(projectRoot);
-    mode = 'existing';
-  } else {
-    mode = 'fresh';
+    logger.log('.env file found. Skipping setup wizard.');
+    return;
   }
 
   const wizard = new WizardServer();
@@ -51,16 +46,11 @@ async function checkEnvOrWizard(logger: Logger): Promise<void> {
       logger.warn(
         `Setup wizard timed out after ${WIZARD_TIMEOUT_MS / 1000}s.`,
       );
-      if (hasEnv) {
-        logger.log('Using existing configuration...');
-        resolve();
-      } else {
-        reject(
-          new Error(
-            '.env 파일이 없고 Setup Wizard 시간이 초과되었습니다. .env.example을 참고하여 .env를 수동으로 생성해주세요.',
-          ),
-        );
-      }
+      reject(
+        new Error(
+          '.env 파일이 없고 Setup Wizard 시간이 초과되었습니다. .env.example을 참고하여 .env를 수동으로 생성해주세요.',
+        ),
+      );
     }, WIZARD_TIMEOUT_MS);
 
     wizard.on('complete', () => {
@@ -76,35 +66,19 @@ async function checkEnvOrWizard(logger: Logger): Promise<void> {
       resolve();
     });
 
-    wizard.on('skip', () => {
-      clearTimeout(timeout);
-      logger.log('Using existing configuration. Starting bot service...');
-      resolve();
-    });
-
     wizard
-      .start(mode, existingEnv)
+      .start('fresh')
       .then(() => {
         const url = wizard.getUrl();
 
-        if (!hasEnv) {
-          logger.log(
-            `\n` +
-              `============================================\n` +
-              `  .env 파일이 없습니다.\n` +
-              `  Setup Wizard를 시작합니다.\n` +
-              `  브라우저: ${url}\n` +
-              `============================================`,
-          );
-        } else {
-          logger.log(
-            `\n` +
-              `============================================\n` +
-              `  기존 설정이 감지되었습니다.\n` +
-              `  설정 변경: ${url}\n` +
-              `============================================`,
-          );
-        }
+        logger.log(
+          `\n` +
+            `============================================\n` +
+            `  .env 파일이 없습니다.\n` +
+            `  Setup Wizard를 시작합니다.\n` +
+            `  브라우저: ${url}\n` +
+            `============================================`,
+        );
 
         openBrowser(url);
       })
