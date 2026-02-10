@@ -380,6 +380,24 @@ Bot이 활성 Claude Code 세션을 자동 감지하여 Slack에 세션 쓰레�
 | `/claude-status` | 실행 큐 상태 (실행 중/대기 중) |
 | `/claude-cancel [작업ID]` | 실행 중인 작업 취소 |
 
+### 실행 방식 비교: `/claude` vs Session Remote Command
+
+| 항목 | `/claude` Slash Command | Session Remote Command |
+|------|------------------------|----------------------|
+| 실행 방식 | 새 Claude 프로세스 생성 (`claude -p`) | 기존 실행 중인 세션에 명령 전달 |
+| 실시간 모니터링 | **불가** — 백그라운드 실행, 완료 후 결과만 반환 | **가능** — PC 터미널에서 실시간 확인 |
+| 작업 컨텍스트 | 매번 새로운 컨텍스트 | 기존 세션의 컨텍스트 유지 |
+| 결과 확인 | Slack 쓰레드에 완료 메시지 | Slack 쓰레드 + PC 터미널 동시 확인 |
+| 적합한 상황 | 독립적인 단발성 작업 | 진행 중인 작업에 추가 지시 |
+| 세션 필요 여부 | 불필요 (Bot이 자동 생성) | Claude Code 세션 활성 상태 필요 |
+| 중단 제어 | `/claude-cancel` 또는 `@claude stop` | 세션 자체에서 Ctrl+C |
+
+> **언제 무엇을 사용하나요?**
+> - 간단한 코드 생성, 분석, 리뷰 등 **독립적 단발 작업** → `/claude`
+> - 현재 작업 중인 세션에 **추가 지시**가 필요하거나 **실시간 모니터링**이 필요한 경우 → Session Remote Command
+>
+> 자세한 비교는 [Slack 명령어 실행 방식 비교 가이드](./claudedocs/slack-command-guide.md)를 참고하세요.
+
 ## 프로젝트 구조
 
 ```
