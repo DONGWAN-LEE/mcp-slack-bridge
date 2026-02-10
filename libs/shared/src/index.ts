@@ -8,6 +8,7 @@ export * from './types/notification.types';
 export * from './types/slack.types';
 export * from './types/hook.types';
 export * from './types/executor.types';
+export * from './types/command.types';
 
 // Config
 export * from './config/configuration';

@@ -8,6 +8,7 @@ import {
 import { join } from 'path';
 import { readdirSync, statSync } from 'fs';
 import { SlackService } from '../slack/slack.service';
+import { SessionThreadService } from './session-thread.service';
 import {
   pathsConfig,
   pollingConfig,
@@ -17,10 +18,13 @@ import { readJsonFile, atomicWriteJson } from '@app/shared/utils/file.utils';
 import { SessionMeta } from '@app/shared/types/session.types';
 import { QuestionFile } from '@app/shared/types/question.types';
 import { NotificationFile } from '@app/shared/types/notification.types';
+import { CommandResultFile } from '@app/shared/types/command.types';
 import { ConfigType } from '@nestjs/config';
 import { buildSessionStartMessage } from '../slack/formatters/session-message.formatter';
 import { buildQuestionMessage } from '../slack/formatters/question-message.formatter';
 import { buildNotificationMessage } from '../slack/formatters/notification-message.formatter';
+import { buildSessionEndMessage } from '../slack/formatters/session-end-message.formatter';
+import { buildCommandResultMessage } from '../slack/formatters/command-message.formatter';
 
 @Injectable()
 export class PollerService implements OnModuleInit, OnModuleDestroy {
@@ -28,10 +32,12 @@ export class PollerService implements OnModuleInit, OnModuleDestroy {
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly knownQuestions = new Map<string, Set<string>>(); // sessionId → questionIds
   private readonly knownNotifications = new Map<string, Set<string>>(); // sessionId → notificationIds
+  private readonly knownSessions = new Set<string>();
   private polling = false;
 
   constructor(
     private readonly slackService: SlackService,
+    private readonly sessionThreadService: SessionThreadService,
     @Inject(pathsConfig.KEY)
     private readonly pathsCfg: ConfigType<typeof pathsConfig>,
     @Inject(pollingConfig.KEY)
@@ -67,8 +73,12 @@ export class PollerService implements OnModuleInit, OnModuleDestroy {
         const meta = readJsonFile<SessionMeta>(metaPath);
         if (!meta || meta.status === 'terminated') continue;
 
+        // Proactive session thread creation
+        await this.ensureProactiveSessionThread(sessionId, meta, metaPath);
+
         await this.processQuestions(sessionId, sessionDir, meta, metaPath);
         await this.processNotifications(sessionId, sessionDir, meta);
+        await this.processCommandResults(sessionId, sessionDir, meta);
       }
 
       await this.cleanStaleSessions(sessionsDir);
@@ -77,6 +87,22 @@ export class PollerService implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.polling = false;
     }
+  }
+
+  private async ensureProactiveSessionThread(
+    sessionId: string,
+    meta: SessionMeta,
+    metaPath: string,
+  ): Promise<void> {
+    if (this.knownSessions.has(sessionId)) {
+      return;
+    }
+
+    // New session discovered
+    this.knownSessions.add(sessionId);
+    this.logger.log(`New session discovered: ${sessionId.slice(0, 8)}`);
+
+    await this.ensureSessionThread(sessionId, meta, metaPath);
   }
 
   private async processQuestions(
@@ -184,6 +210,41 @@ export class PollerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async processCommandResults(
+    sessionId: string,
+    sessionDir: string,
+    meta: SessionMeta,
+  ): Promise<void> {
+    const resultsDir = join(sessionDir, 'command-results');
+    const files = this.listJsonFiles(resultsDir);
+
+    for (const file of files) {
+      const resultPath = join(resultsDir, file);
+      const cmdResult = readJsonFile<CommandResultFile>(resultPath);
+      if (!cmdResult || cmdResult.posted) continue;
+
+      try {
+        const channelId = this.slackService.getChannelId();
+        const msg = buildCommandResultMessage(meta, cmdResult, channelId);
+
+        const postResult = await this.slackService.postMessage(msg);
+
+        if (postResult.ts) {
+          cmdResult.posted = true;
+          atomicWriteJson(resultPath, cmdResult);
+        }
+
+        this.logger.log(
+          `Command result posted: session=${sessionId.slice(0, 8)} cmd=${cmdResult.commandId}`,
+        );
+      } catch (err) {
+        this.logger.error(
+          `Failed to post command result: session=${sessionId.slice(0, 8)} cmd=${cmdResult.commandId} error=${(err as Error).message}`,
+        );
+      }
+    }
+  }
+
   private async ensureSessionThread(
     sessionId: string,
     meta: SessionMeta,
@@ -198,6 +259,7 @@ export class PollerService implements OnModuleInit, OnModuleDestroy {
     if (result.ts) {
       meta.slackThreadTs = result.ts;
       atomicWriteJson(metaPath, meta);
+      this.sessionThreadService.registerThread(result.ts, sessionId);
       this.logger.log(
         `Session thread created: session=${sessionId.slice(0, 8)} ts=${result.ts}`,
       );
@@ -224,10 +286,25 @@ export class PollerService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (isStale) {
+        // Post session end message if thread exists
+        if (meta.slackThreadTs) {
+          try {
+            const channelId = this.slackService.getChannelId();
+            const msg = buildSessionEndMessage(meta, channelId);
+            await this.slackService.postMessage(msg);
+          } catch (err) {
+            this.logger.error(
+              `Failed to post session end: ${(err as Error).message}`,
+            );
+          }
+        }
+
         meta.status = 'terminated';
         atomicWriteJson(metaPath, meta);
         this.knownQuestions.delete(sessionId);
         this.knownNotifications.delete(sessionId);
+        this.knownSessions.delete(sessionId);
+        this.sessionThreadService.unregisterSession(sessionId);
         this.logger.log(`Stale session terminated: ${sessionId.slice(0, 8)}`);
       }
     }

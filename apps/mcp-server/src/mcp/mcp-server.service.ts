@@ -10,6 +10,8 @@ import { FileBridgeService } from '../bridge/file-bridge.service';
 import { registerSlackAskTool } from './tools/slack-ask.tool';
 import { registerSlackNotifyTool } from './tools/slack-notify.tool';
 import { registerSlackWaitTool } from './tools/slack-wait.tool';
+import { registerSlackCheckCommandsTool } from './tools/slack-check-commands.tool';
+import { registerSlackCommandResultTool } from './tools/slack-command-result.tool';
 
 @Injectable()
 export class McpServerService implements OnModuleInit, OnModuleDestroy {
@@ -29,6 +31,8 @@ export class McpServerService implements OnModuleInit, OnModuleDestroy {
     registerSlackAskTool(this.mcpServer, this.sessionService, this.fileBridge);
     registerSlackNotifyTool(this.mcpServer, this.sessionService, this.fileBridge);
     registerSlackWaitTool(this.mcpServer, this.sessionService, this.fileBridge);
+    registerSlackCheckCommandsTool(this.mcpServer, this.sessionService, this.fileBridge);
+    registerSlackCommandResultTool(this.mcpServer, this.sessionService, this.fileBridge);
 
     const transport = new StdioServerTransport();
     await this.mcpServer.connect(transport);
