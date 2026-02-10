@@ -21,6 +21,7 @@ import * as fileUtils from '@app/shared/utils/file.utils';
 describe('PollerService', () => {
   let service: PollerService;
   let slackService: any;
+  let sessionThreadService: any;
 
   const pathsCfg = { stateDir: './state', workingDir: '.' };
   const pollingCfg = { intervalMs: 2000, notificationDelaySec: 0 };
@@ -41,8 +42,16 @@ describe('PollerService', () => {
       updateMessage: jest.fn().mockResolvedValue(undefined),
     };
 
+    sessionThreadService = {
+      registerThread: jest.fn(),
+      unregisterSession: jest.fn(),
+      findSessionByThreadTs: jest.fn().mockReturnValue(null),
+      isSessionThread: jest.fn().mockReturnValue(false),
+    };
+
     service = new PollerService(
       slackService,
+      sessionThreadService,
       pathsCfg as any,
       pollingCfg as any,
       sessionCfg as any,
@@ -242,6 +251,7 @@ describe('PollerService', () => {
     // Create a new service with 60 second delay
     const delayService = new PollerService(
       slackService,
+      sessionThreadService,
       pathsCfg as any,
       { intervalMs: 2000, notificationDelaySec: 60 } as any,
       sessionCfg as any,
@@ -305,6 +315,7 @@ describe('PollerService', () => {
   it('should skip notification when question is answered before delay expires', async () => {
     const delayService = new PollerService(
       slackService,
+      sessionThreadService,
       pathsCfg as any,
       { intervalMs: 2000, notificationDelaySec: 60 } as any,
       sessionCfg as any,
@@ -386,10 +397,11 @@ describe('PollerService', () => {
       environment: { terminal: 'vscode', displayName: 'VS Code' },
       projectName: 'test',
       projectPath: '/test',
+      slackThreadTs: '100.200', // Already has thread — skip ensureSessionThread
     };
 
     (fileUtils.readJsonFile as jest.Mock).mockImplementation((path: string) => {
-      if (path.includes('meta.json')) return meta;
+      if (path.includes('meta.json')) return { ...meta };
       return null;
     });
 
@@ -398,10 +410,7 @@ describe('PollerService', () => {
     });
 
     service.onModuleInit();
-    jest.advanceTimersByTime(2000);
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await jest.advanceTimersByTimeAsync(2000);
 
     expect(fileUtils.atomicWriteJson).toHaveBeenCalledWith(
       expect.stringContaining('meta.json'),
