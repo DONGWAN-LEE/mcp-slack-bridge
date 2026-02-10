@@ -1,7 +1,13 @@
 import { Injectable, Inject, OnModuleInit, Logger } from '@nestjs/common';
+import { join } from 'path';
 import { SlackService } from '../slack.service';
 import { ExecutorService } from '../../executor/executor.service';
 import { QueueService } from '../../executor/queue.service';
+import { SessionThreadService } from '../../poller/session-thread.service';
+import { pathsConfig } from '@app/shared/config/configuration';
+import { readJsonFile } from '@app/shared/utils/file.utils';
+import { SessionMeta } from '@app/shared/types/session.types';
+import { ConfigType } from '@nestjs/config';
 import {
   buildExecutionStoppedMessage,
   buildThreadStatusMessage,
@@ -15,6 +21,9 @@ export class MentionHandler implements OnModuleInit {
     private readonly slackService: SlackService,
     private readonly executorService: ExecutorService,
     private readonly queueService: QueueService,
+    private readonly sessionThreadService: SessionThreadService,
+    @Inject(pathsConfig.KEY)
+    private readonly pathsCfg: ConfigType<typeof pathsConfig>,
   ) {}
 
   onModuleInit(): void {
@@ -47,6 +56,14 @@ export class MentionHandler implements OnModuleInit {
         return;
       }
 
+      // Check if this thread belongs to an active Claude Code session
+      const sessionId = this.sessionThreadService.findSessionByThreadTs(threadTs);
+      if (sessionId) {
+        await this.handleSessionCommand(sessionId, text, userId, threadTs, channel);
+        return;
+      }
+
+      // Existing executor logic
       const command = text.toLowerCase();
 
       if (command === 'stop') {
@@ -59,6 +76,73 @@ export class MentionHandler implements OnModuleInit {
     } catch (err) {
       this.logger.error(`app_mention error: ${(err as Error).message}`);
     }
+  }
+
+  private async handleSessionCommand(
+    sessionId: string,
+    text: string,
+    userId: string,
+    threadTs: string,
+    channel: string,
+  ): Promise<void> {
+    const command = text.toLowerCase();
+
+    if (command === 'status') {
+      await this.handleSessionStatus(sessionId, channel, threadTs);
+      return;
+    }
+
+    // Write command to session commands directory
+    const cmdFile = this.sessionThreadService.writeCommand(
+      sessionId,
+      text,
+      userId,
+    );
+
+    await this.slackService.postMessage({
+      channel,
+      text: `:arrow_right: 명령이 세션에 전달되었습니다. (ID: \`${cmdFile.commandId}\`)`,
+      thread_ts: threadTs,
+    });
+
+    this.logger.log(
+      `Session command written: session=${sessionId.slice(0, 8)} cmd=${cmdFile.commandId}`,
+    );
+  }
+
+  private async handleSessionStatus(
+    sessionId: string,
+    channel: string,
+    threadTs: string,
+  ): Promise<void> {
+    const metaPath = join(
+      this.pathsCfg.stateDir,
+      'sessions',
+      sessionId,
+      'meta.json',
+    );
+    const meta = readJsonFile<SessionMeta>(metaPath);
+
+    if (!meta) {
+      await this.slackService.postMessage({
+        channel,
+        text: ':warning: 세션 정보를 읽을 수 없습니다.',
+        thread_ts: threadTs,
+      });
+      return;
+    }
+
+    const shortId = meta.sessionId.slice(0, 8);
+    const statusIcon = meta.status === 'active' ? ':large_green_circle:' : ':yellow_circle:';
+    const uptime = Math.round(
+      (Date.now() - new Date(meta.createdAt).getTime()) / 60000,
+    );
+
+    await this.slackService.postMessage({
+      channel,
+      text: `${statusIcon} 세션 \`${shortId}...\` | 상태: ${meta.status} | 환경: ${meta.environment.displayName} | 가동: ${uptime}분`,
+      thread_ts: threadTs,
+    });
   }
 
   private async handleStop(threadTs: string, channel: string): Promise<void> {

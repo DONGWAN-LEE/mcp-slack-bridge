@@ -63,6 +63,8 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     ensureDir(join(sessionDir, 'questions'));
     ensureDir(join(sessionDir, 'responses'));
     ensureDir(join(sessionDir, 'notifications'));
+    ensureDir(join(sessionDir, 'commands'));
+    ensureDir(join(sessionDir, 'command-results'));
 
     const meta: SessionMeta = {
       sessionId,
