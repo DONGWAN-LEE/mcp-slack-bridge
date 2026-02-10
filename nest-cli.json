@@ -15,7 +15,13 @@
       "entryFile": "main",
       "sourceRoot": "apps/bot-service/src",
       "compilerOptions": {
-        "tsConfigPath": "apps/bot-service/tsconfig.app.json"
+        "tsConfigPath": "apps/bot-service/tsconfig.app.json",
+        "assets": [
+          {
+            "include": "wizard/public/**/*",
+            "outDir": "dist/apps/bot-service"
+          }
+        ]
       }
     },
     "mcp-server": {
