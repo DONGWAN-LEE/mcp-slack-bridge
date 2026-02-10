@@ -321,11 +321,16 @@ describe('MentionHandler', () => {
 
     it('should show session status when "status" is sent in a session thread', async () => {
       mockSessionThreadService.findSessionByThreadTs.mockReturnValue('sess-1');
-      (fileUtils.readJsonFile as jest.Mock).mockReturnValue({
-        sessionId: 'sess-12345678',
-        status: 'active',
-        environment: { displayName: 'VS Code' },
-        createdAt: new Date(Date.now() - 600000).toISOString(), // 10 min ago
+      (fileUtils.readJsonFile as jest.Mock).mockImplementation((path: string) => {
+        if (path.includes('meta.json')) {
+          return {
+            sessionId: 'sess-12345678',
+            status: 'active',
+            environment: { displayName: 'VS Code' },
+            createdAt: new Date(Date.now() - 600000).toISOString(), // 10 min ago
+          };
+        }
+        return null;
       });
 
       await handler.handleMention({
@@ -346,7 +351,7 @@ describe('MentionHandler', () => {
 
     it('should warn when meta.json cannot be read for session status', async () => {
       mockSessionThreadService.findSessionByThreadTs.mockReturnValue('sess-1');
-      (fileUtils.readJsonFile as jest.Mock).mockReturnValue(null);
+      (fileUtils.readJsonFile as jest.Mock).mockImplementation(() => null);
 
       await handler.handleMention({
         user: 'U123',

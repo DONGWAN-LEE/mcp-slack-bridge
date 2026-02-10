@@ -81,13 +81,13 @@ describe('SessionThreadService', () => {
       expect(result.commandId).toMatch(/^cmd-/);
       expect(result.createdAt).toBeDefined();
 
-      expect(fileUtils.atomicWriteJson).toHaveBeenCalledWith(
-        expect.stringContaining('sess-mno'),
+      expect(fileUtils.atomicWriteJson).toHaveBeenCalledTimes(1);
+      const [filePath, fileData] = (fileUtils.atomicWriteJson as jest.Mock).mock.calls[0];
+      expect(filePath).toContain('sess-mno');
+      expect(filePath).toContain('commands');
+      expect(filePath).toContain(`${result.commandId}.json`);
+      expect(fileData).toEqual(
         expect.objectContaining({ commandId: result.commandId }),
-      );
-      expect(fileUtils.atomicWriteJson).toHaveBeenCalledWith(
-        expect.stringContaining('commands'),
-        expect.any(Object),
       );
     });
   });

@@ -60,6 +60,7 @@ describe('PollerService', () => {
 
   afterEach(() => {
     service.onModuleDestroy();
+    jest.clearAllTimers();
     jest.useRealTimers();
   });
 
