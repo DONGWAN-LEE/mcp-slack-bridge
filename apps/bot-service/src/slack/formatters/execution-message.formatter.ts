@@ -1,4 +1,21 @@
-import { ExecutionJob } from '@app/shared/types/executor.types';
+import { ExecutionJob, ExecutionMode } from '@app/shared/types/executor.types';
+
+const MODE_BADGES: Record<ExecutionMode, string> = {
+  default: '',
+  plan: ':clipboard: *[Plan Mode]*',
+  brainstorm: ':bulb: *[Brainstorm]*',
+  analyze: ':mag: *[Analyze]*',
+  review: ':eyes: *[Review]*',
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  queued: ':hourglass_flowing_sand: 대기 중',
+  running: ':arrow_forward: 실행 중',
+  completed: ':white_check_mark: 완료',
+  failed: ':x: 실패',
+  cancelled: ':no_entry_sign: 취소됨',
+  stopped: ':stop_button: 중지됨',
+};
 
 export function buildExecutionStartMessage(
   job: ExecutionJob,
@@ -9,6 +26,8 @@ export function buildExecutionStartMessage(
       ? job.prompt.slice(0, 100) + '...'
       : job.prompt;
 
+  const modeBadge = job.mode && job.mode !== 'default' ? `${MODE_BADGES[job.mode]} ` : '';
+
   return {
     channel: channelId,
     text: `Claude 작업 시작: ${truncatedPrompt}`,
@@ -17,13 +36,14 @@ export function buildExecutionStartMessage(
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `:robot_face: *Claude Code 작업 시작*\n:memo: \`${truncatedPrompt}\`\n:bust_in_silhouette: <@${job.requestedBy}>`,
+          text: `:robot_face: *Claude Code 작업 시작*${modeBadge ? `\n${modeBadge}` : ''}\n:memo: \`${truncatedPrompt}\`\n:bust_in_silhouette: <@${job.requestedBy}>`,
         },
       },
       {
         type: 'context',
         elements: [
           { type: 'mrkdwn', text: `작업 ID: \`${job.id.slice(0, 8)}\`` },
+          { type: 'mrkdwn', text: `쓰레드에서 \`@claude stop\`, \`@claude status\` 사용 가능` },
         ],
       },
     ],
@@ -86,6 +106,80 @@ export function buildExecutionCompleteMessage(
     channel: channelId,
     text: `Claude 작업 ${label}: ${truncatedPrompt}`,
     blocks,
+  };
+}
+
+export function buildExecutionStoppedMessage(
+  job: ExecutionJob,
+  channelId: string,
+): { channel: string; text: string; blocks: any[] } {
+  const truncatedPrompt =
+    job.prompt.length > 80 ? job.prompt.slice(0, 80) + '...' : job.prompt;
+
+  return {
+    channel: channelId,
+    text: `작업 중지됨: ${truncatedPrompt}`,
+    blocks: [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `:stop_button: *작업이 중지되었습니다*\n:memo: \`${truncatedPrompt}\``,
+        },
+      },
+      {
+        type: 'context',
+        elements: [
+          { type: 'mrkdwn', text: '새 context를 입력하면 이 쓰레드에서 작업을 재시작합니다.' },
+          { type: 'mrkdwn', text: `작업 ID: \`${job.id.slice(0, 8)}\`` },
+        ],
+      },
+    ],
+  };
+}
+
+export function buildThreadStatusMessage(
+  job: ExecutionJob,
+  channelId: string,
+): { channel: string; text: string; blocks: any[] } {
+  const truncatedPrompt =
+    job.prompt.length > 80 ? job.prompt.slice(0, 80) + '...' : job.prompt;
+
+  const statusLabel = STATUS_LABELS[job.status] || job.status;
+  const modeBadge = job.mode && job.mode !== 'default' ? MODE_BADGES[job.mode] : '';
+
+  const details: string[] = [
+    `*상태:* ${statusLabel}`,
+    `*프롬프트:* \`${truncatedPrompt}\``,
+    `*요청자:* <@${job.requestedBy}>`,
+  ];
+
+  if (modeBadge) {
+    details.push(`*모드:* ${modeBadge}`);
+  }
+
+  if (job.result?.durationMs) {
+    details.push(`*소요:* ${(job.result.durationMs / 1000).toFixed(1)}초`);
+  }
+
+  return {
+    channel: channelId,
+    text: `작업 상태: ${statusLabel}`,
+    blocks: [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `:bar_chart: *작업 상태 조회*\n${details.join('\n')}`,
+        },
+      },
+      {
+        type: 'context',
+        elements: [
+          { type: 'mrkdwn', text: `작업 ID: \`${job.id.slice(0, 8)}\`` },
+        ],
+      },
+    ],
   };
 }
 

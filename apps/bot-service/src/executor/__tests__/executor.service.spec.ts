@@ -84,7 +84,7 @@ describe('ExecutorService', () => {
       mockQueueService.enqueue.mockResolvedValue(mockJob);
 
       const result = await service.submitJob('test', 'U123');
-      expect(mockQueueService.enqueue).toHaveBeenCalledWith('test', 'U123');
+      expect(mockQueueService.enqueue).toHaveBeenCalledWith('test', 'U123', undefined);
       expect(result.id).toBe('test-id');
     });
   });

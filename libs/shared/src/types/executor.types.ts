@@ -3,7 +3,10 @@ export type ExecutionStatus =
   | 'running'
   | 'completed'
   | 'failed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'stopped';
+
+export type ExecutionMode = 'default' | 'plan' | 'brainstorm' | 'analyze' | 'review';
 
 export interface ExecutionJob {
   id: string;
@@ -16,7 +19,11 @@ export interface ExecutionJob {
   result?: ExecutionResult;
   completedAt?: string;
   cancelledAt?: string;
+  stoppedAt?: string;
   error?: string;
+  thread_ts?: string;
+  channel?: string;
+  mode?: ExecutionMode;
 }
 
 export interface ExecutionResult {

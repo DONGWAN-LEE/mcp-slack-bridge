@@ -9,6 +9,7 @@ import { readJsonFile, atomicWriteJson } from '@app/shared/utils/file.utils';
 import { isSafePathSegment } from '@app/shared/utils/action-parser.utils';
 import { SessionMeta } from '@app/shared/types/session.types';
 import { ContextInjection } from '@app/shared/types/slack.types';
+import { ExecutionMode } from '@app/shared/types/executor.types';
 import { ConfigType } from '@nestjs/config';
 import { buildSessionsListMessage } from '../formatters/sessions-list.formatter';
 import {
@@ -58,6 +59,31 @@ export class CommandHandler implements OnModuleInit {
     this.logger.log('Slash commands registered: /claude, /claude-sessions, /claude-inject, /claude-status, /claude-cancel');
   }
 
+  static readonly MODES: ExecutionMode[] = ['plan', 'brainstorm', 'analyze', 'review'];
+
+  static readonly MODE_LABELS: Record<ExecutionMode, string> = {
+    default: '',
+    plan: 'Plan Mode',
+    brainstorm: 'Brainstorm Mode',
+    analyze: 'Analyze Mode',
+    review: 'Review Mode',
+  };
+
+  static parseMode(text: string): { mode: ExecutionMode; prompt: string } {
+    const trimmed = text.trim();
+    const [firstWord, ...rest] = trimmed.split(/\s+/);
+    const lower = firstWord?.toLowerCase();
+
+    if (CommandHandler.MODES.includes(lower as ExecutionMode)) {
+      return {
+        mode: lower as ExecutionMode,
+        prompt: rest.join(' '),
+      };
+    }
+
+    return { mode: 'default', prompt: trimmed };
+  }
+
   private async handleClaude(command: any, respond: any): Promise<void> {
     try {
       const userId = command.user_id;
@@ -66,10 +92,20 @@ export class CommandHandler implements OnModuleInit {
         return;
       }
 
-      const prompt = command.text?.trim();
+      const rawText = command.text?.trim();
+      if (!rawText) {
+        await respond({
+          text: ':information_source: 사용법: `/claude [모드] <프롬프트>`\n모드: `plan`, `brainstorm`, `analyze`, `review` (선택)\n예: `/claude plan 아키텍처를 설계해줘`\n예: `/claude user 테이블에 email 컬럼 추가해줘`',
+          response_type: 'ephemeral',
+        });
+        return;
+      }
+
+      const { mode, prompt } = CommandHandler.parseMode(rawText);
+
       if (!prompt) {
         await respond({
-          text: ':information_source: 사용법: `/claude <프롬프트>`\n예: `/claude user 테이블에 email 컬럼 추가해줘`',
+          text: ':warning: 프롬프트를 입력하세요.\n예: `/claude plan 아키텍처를 설계해줘`',
           response_type: 'ephemeral',
         });
         return;
@@ -93,9 +129,15 @@ export class CommandHandler implements OnModuleInit {
         return;
       }
 
-      const job = await this.executorService.submitJob(prompt, userId);
+      const channelId = command.channel_id || this.slackService.getChannelId();
+      const job = await this.executorService.submitJob(prompt, userId, {
+        channel: channelId,
+        mode,
+      });
+
+      const modeLabel = mode !== 'default' ? ` [${CommandHandler.MODE_LABELS[mode]}]` : '';
       await respond({
-        text: `:white_check_mark: 작업이 큐에 추가되었습니다. (ID: \`${job.id.slice(0, 8)}\`)`,
+        text: `:white_check_mark:${modeLabel} 작업이 큐에 추가되었습니다. (ID: \`${job.id.slice(0, 8)}\`)`,
         response_type: 'ephemeral',
       });
     } catch (err) {

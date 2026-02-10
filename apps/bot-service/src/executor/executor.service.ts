@@ -17,7 +17,7 @@ import {
   buildExecutionStartMessage,
   buildExecutionCompleteMessage,
 } from '../slack/formatters/execution-message.formatter';
-import { ExecutionJob, ExecutionResult } from '@app/shared/types/executor.types';
+import { ExecutionJob, ExecutionMode, ExecutionResult } from '@app/shared/types/executor.types';
 import * as treeKill from 'tree-kill';
 
 @Injectable()
@@ -83,8 +83,12 @@ export class ExecutorService implements OnModuleDestroy {
     return null;
   }
 
-  async submitJob(prompt: string, requestedBy: string): Promise<ExecutionJob> {
-    return this.queueService.enqueue(prompt, requestedBy);
+  async submitJob(
+    prompt: string,
+    requestedBy: string,
+    options?: { thread_ts?: string; channel?: string; mode?: ExecutionMode },
+  ): Promise<ExecutionJob> {
+    return this.queueService.enqueue(prompt, requestedBy, options);
   }
 
   async cancelJobById(jobIdPrefix: string): Promise<ExecutionJob | null> {
@@ -101,6 +105,20 @@ export class ExecutorService implements OnModuleDestroy {
     return cancelled;
   }
 
+  async stopJobByThreadTs(threadTs: string): Promise<ExecutionJob | null> {
+    const job = await this.queueService.getRunningJobByThreadTs(threadTs);
+    if (!job) return null;
+
+    const stopped = await this.queueService.stopJob(job.id);
+    if (stopped && stopped.pid) {
+      const proc = this.activeProcesses.get(stopped.id);
+      if (proc) {
+        this.killProcess(proc, stopped.id);
+      }
+    }
+    return stopped;
+  }
+
   private async processQueue(): Promise<void> {
     try {
       const job = await this.queueService.dequeue();
@@ -112,16 +130,41 @@ export class ExecutorService implements OnModuleDestroy {
     }
   }
 
+  private buildModePrompt(prompt: string, mode?: ExecutionMode): string {
+    switch (mode) {
+      case 'plan':
+        return `[PLAN MODE] ${prompt}`;
+      case 'brainstorm':
+        return `[BRAINSTORM MODE] ${prompt}`;
+      case 'analyze':
+        return `[ANALYZE MODE] ${prompt}`;
+      case 'review':
+        return `[REVIEW MODE] ${prompt}`;
+      default:
+        return prompt;
+    }
+  }
+
   private async execute(job: ExecutionJob): Promise<void> {
-    const channelId = this.slackService.getChannelId();
+    const channelId = job.channel || this.slackService.getChannelId();
     const startMsg = buildExecutionStartMessage(job, channelId);
-    await this.slackService.postMessage(startMsg);
+    const postResult = await this.slackService.postMessage({
+      ...startMsg,
+      thread_ts: job.thread_ts,
+    });
+
+    // If no thread_ts yet, use the posted message's ts as thread root
+    if (!job.thread_ts && postResult.ts) {
+      job.thread_ts = postResult.ts;
+      await this.queueService.updateJob(job.id, { thread_ts: postResult.ts });
+    }
 
     const startTime = Date.now();
     const workingDir = job.workingDir || this.pathsCfg.workingDir;
+    const modePrompt = this.buildModePrompt(job.prompt, job.mode);
 
     try {
-      const proc = spawn('claude', ['-p', job.prompt, '--output-format', 'json'], {
+      const proc = spawn('claude', ['-p', modePrompt, '--output-format', 'json'], {
         cwd: workingDir,
         shell: false,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -132,6 +175,15 @@ export class ExecutorService implements OnModuleDestroy {
 
       const result = await this.waitForProcess(proc, job.id);
       const durationMs = Date.now() - startTime;
+
+      // Check if the job was stopped/cancelled externally during execution
+      const currentJob = await this.queueService.findJobByThreadTs(job.thread_ts || '');
+      const wasStoppedExternally = currentJob && (currentJob.status === 'stopped' || currentJob.status === 'cancelled');
+
+      if (wasStoppedExternally) {
+        this.logger.log(`Job ${job.id.slice(0, 8)} was stopped externally, skipping completion update`);
+        return;
+      }
 
       const execResult: ExecutionResult = {
         exitCode: result.exitCode,
@@ -150,8 +202,20 @@ export class ExecutorService implements OnModuleDestroy {
       job.result = execResult;
 
       const completeMsg = buildExecutionCompleteMessage(job, channelId);
-      await this.slackService.postMessage(completeMsg);
+      await this.slackService.postMessage({
+        ...completeMsg,
+        thread_ts: job.thread_ts,
+      });
     } catch (err) {
+      // Check if externally stopped before posting error
+      const currentJob = await this.queueService.findJobByThreadTs(job.thread_ts || '');
+      const wasStoppedExternally = currentJob && (currentJob.status === 'stopped' || currentJob.status === 'cancelled');
+
+      if (wasStoppedExternally) {
+        this.logger.log(`Job ${job.id.slice(0, 8)} was stopped externally, skipping error update`);
+        return;
+      }
+
       const error = (err as Error).message;
       await this.queueService.updateJob(job.id, {
         status: 'failed',
@@ -162,7 +226,10 @@ export class ExecutorService implements OnModuleDestroy {
       job.status = 'failed';
       job.error = error;
       const completeMsg = buildExecutionCompleteMessage(job, channelId);
-      await this.slackService.postMessage(completeMsg);
+      await this.slackService.postMessage({
+        ...completeMsg,
+        thread_ts: job.thread_ts,
+      });
     } finally {
       this.activeProcesses.delete(job.id);
     }
