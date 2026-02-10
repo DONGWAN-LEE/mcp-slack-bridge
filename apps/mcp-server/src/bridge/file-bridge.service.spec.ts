@@ -1,11 +1,18 @@
 import { FileBridgeService } from './file-bridge.service';
 import * as fileUtils from '@app/shared/utils/file.utils';
+import { readdirSync } from 'fs';
 import { QuestionFile } from '@app/shared/types/question.types';
 import { NotificationFile } from '@app/shared/types/notification.types';
+import { CommandFile, CommandResultFile } from '@app/shared/types/command.types';
 
 jest.mock('@app/shared/utils/file.utils', () => ({
   atomicWriteJson: jest.fn(),
   readJsonFile: jest.fn(),
+}));
+
+jest.mock('fs', () => ({
+  ...jest.requireActual('fs'),
+  readdirSync: jest.fn(),
 }));
 
 describe('FileBridgeService', () => {
@@ -138,6 +145,116 @@ describe('FileBridgeService', () => {
       expect(() =>
         service.readResponse('sess-1', '..\\..\\secret'),
       ).toThrow('Invalid path segment');
+    });
+  });
+
+  describe('readPendingCommands', () => {
+    it('should return only pending commands sorted by createdAt', () => {
+      const pendingCmd: CommandFile = {
+        commandId: 'cmd-1',
+        sessionId: 'sess-1',
+        command: 'first',
+        requestedBy: 'U1',
+        createdAt: '2026-01-01T00:02:00Z',
+        status: 'pending',
+      };
+      const olderPendingCmd: CommandFile = {
+        commandId: 'cmd-2',
+        sessionId: 'sess-1',
+        command: 'older',
+        requestedBy: 'U2',
+        createdAt: '2026-01-01T00:01:00Z',
+        status: 'pending',
+      };
+      const receivedCmd: CommandFile = {
+        commandId: 'cmd-3',
+        sessionId: 'sess-1',
+        command: 'already received',
+        requestedBy: 'U3',
+        createdAt: '2026-01-01T00:00:00Z',
+        status: 'received',
+      };
+
+      (readdirSync as jest.Mock).mockReturnValue([
+        'cmd-1.json',
+        'cmd-2.json',
+        'cmd-3.json',
+      ]);
+      (fileUtils.readJsonFile as jest.Mock)
+        .mockReturnValueOnce(pendingCmd)
+        .mockReturnValueOnce(olderPendingCmd)
+        .mockReturnValueOnce(receivedCmd);
+
+      const result = service.readPendingCommands('sess-1');
+
+      expect(result).toHaveLength(2);
+      expect(result[0].commandId).toBe('cmd-2'); // older first
+      expect(result[1].commandId).toBe('cmd-1');
+    });
+
+    it('should return empty array when directory does not exist', () => {
+      (readdirSync as jest.Mock).mockImplementation(() => {
+        throw new Error('ENOENT');
+      });
+
+      const result = service.readPendingCommands('sess-1');
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('updateCommandStatus', () => {
+    it('should read command, update status, and write back', () => {
+      const existingCmd: CommandFile = {
+        commandId: 'cmd-1',
+        sessionId: 'sess-1',
+        command: 'test',
+        requestedBy: 'U1',
+        createdAt: '2026-01-01T00:00:00Z',
+        status: 'pending',
+      };
+      (fileUtils.readJsonFile as jest.Mock).mockReturnValue({ ...existingCmd });
+
+      service.updateCommandStatus('sess-1', 'cmd-1', 'received');
+
+      expect(fileUtils.readJsonFile).toHaveBeenCalledWith(
+        expect.stringContaining('cmd-1.json'),
+      );
+      expect(fileUtils.atomicWriteJson).toHaveBeenCalledWith(
+        expect.stringContaining('cmd-1.json'),
+        expect.objectContaining({ status: 'received' }),
+      );
+    });
+
+    it('should do nothing when command file does not exist', () => {
+      (fileUtils.readJsonFile as jest.Mock).mockReturnValue(null);
+
+      service.updateCommandStatus('sess-1', 'cmd-999', 'received');
+
+      expect(fileUtils.atomicWriteJson).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('writeCommandResult', () => {
+    it('should write result file to command-results directory', () => {
+      const result: CommandResultFile = {
+        commandId: 'cmd-1',
+        sessionId: 'sess-1',
+        result: 'done',
+        status: 'success',
+        completedAt: '2026-01-01T00:05:00Z',
+      };
+
+      service.writeCommandResult(result);
+
+      expect(fileUtils.atomicWriteJson).toHaveBeenCalledWith(
+        expect.stringContaining('command-results'),
+        result,
+      );
+      expect(fileUtils.atomicWriteJson).toHaveBeenCalledWith(
+        expect.stringContaining('cmd-1.json'),
+        result,
+      );
     });
   });
 });

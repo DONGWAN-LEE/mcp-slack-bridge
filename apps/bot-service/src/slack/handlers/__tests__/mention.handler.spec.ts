@@ -1,10 +1,17 @@
 import { MentionHandler } from '../mention.handler';
+import * as fileUtils from '@app/shared/utils/file.utils';
+
+jest.mock('@app/shared/utils/file.utils', () => ({
+  readJsonFile: jest.fn(),
+}));
 
 describe('MentionHandler', () => {
   let handler: MentionHandler;
   let mockSlackService: any;
   let mockExecutorService: any;
   let mockQueueService: any;
+  let mockSessionThreadService: any;
+  let mockPathsCfg: any;
   let registeredEvents: Map<string, Function>;
 
   beforeEach(() => {
@@ -38,10 +45,26 @@ describe('MentionHandler', () => {
       getRunningJobByThreadTs: jest.fn(),
     };
 
+    mockSessionThreadService = {
+      findSessionByThreadTs: jest.fn().mockReturnValue(null),
+      writeCommand: jest.fn().mockReturnValue({
+        commandId: 'cmd-test',
+        sessionId: 'sess-1',
+        command: 'test',
+        requestedBy: 'U123',
+        createdAt: '2026-01-01T00:00:00Z',
+        status: 'pending',
+      }),
+    };
+
+    mockPathsCfg = { stateDir: './state', workingDir: '/test' };
+
     handler = new MentionHandler(
       mockSlackService,
       mockExecutorService,
       mockQueueService,
+      mockSessionThreadService,
+      mockPathsCfg as any,
     );
 
     handler.onModuleInit();
@@ -256,6 +279,107 @@ describe('MentionHandler', () => {
       });
 
       expect(mockSlackService.postMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('session thread commands', () => {
+    it('should write command when text is sent in a session thread', async () => {
+      mockSessionThreadService.findSessionByThreadTs.mockReturnValue('sess-1');
+
+      await handler.handleMention({
+        user: 'U123',
+        channel: 'C123',
+        text: '<@BOTID> run the tests',
+        thread_ts: 'ts-session',
+      });
+
+      expect(mockSessionThreadService.writeCommand).toHaveBeenCalledWith(
+        'sess-1',
+        'run the tests',
+        'U123',
+      );
+      expect(mockExecutorService.submitJob).not.toHaveBeenCalled();
+    });
+
+    it('should include commandId in confirmation message', async () => {
+      mockSessionThreadService.findSessionByThreadTs.mockReturnValue('sess-1');
+
+      await handler.handleMention({
+        user: 'U123',
+        channel: 'C123',
+        text: '<@BOTID> deploy',
+        thread_ts: 'ts-session',
+      });
+
+      expect(mockSlackService.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: expect.stringContaining('cmd-test'),
+          thread_ts: 'ts-session',
+        }),
+      );
+    });
+
+    it('should show session status when "status" is sent in a session thread', async () => {
+      mockSessionThreadService.findSessionByThreadTs.mockReturnValue('sess-1');
+      (fileUtils.readJsonFile as jest.Mock).mockImplementation((path: string) => {
+        if (path.includes('meta.json')) {
+          return {
+            sessionId: 'sess-12345678',
+            status: 'active',
+            environment: { displayName: 'VS Code' },
+            createdAt: new Date(Date.now() - 600000).toISOString(), // 10 min ago
+          };
+        }
+        return null;
+      });
+
+      await handler.handleMention({
+        user: 'U123',
+        channel: 'C123',
+        text: '<@BOTID> status',
+        thread_ts: 'ts-session',
+      });
+
+      expect(mockSlackService.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: expect.stringContaining('sess-123'),
+          thread_ts: 'ts-session',
+        }),
+      );
+      expect(mockSessionThreadService.writeCommand).not.toHaveBeenCalled();
+    });
+
+    it('should warn when meta.json cannot be read for session status', async () => {
+      mockSessionThreadService.findSessionByThreadTs.mockReturnValue('sess-1');
+      (fileUtils.readJsonFile as jest.Mock).mockImplementation(() => null);
+
+      await handler.handleMention({
+        user: 'U123',
+        channel: 'C123',
+        text: '<@BOTID> status',
+        thread_ts: 'ts-session',
+      });
+
+      expect(mockSlackService.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: expect.stringContaining('읽을 수 없습니다'),
+          thread_ts: 'ts-session',
+        }),
+      );
+    });
+
+    it('should fall through to executor logic when thread is not a session thread', async () => {
+      mockSessionThreadService.findSessionByThreadTs.mockReturnValue(null);
+
+      await handler.handleMention({
+        user: 'U123',
+        channel: 'C123',
+        text: '<@BOTID> stop',
+        thread_ts: 'ts-normal',
+      });
+
+      expect(mockExecutorService.stopJobByThreadTs).toHaveBeenCalledWith('ts-normal');
+      expect(mockSessionThreadService.writeCommand).not.toHaveBeenCalled();
     });
   });
 });

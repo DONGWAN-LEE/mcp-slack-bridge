@@ -59,13 +59,15 @@ describe('McpServerService', () => {
   });
 
   describe('onModuleInit', () => {
-    it('should create McpServer and register 3 tools', async () => {
+    it('should create McpServer and register 5 tools', async () => {
       await service.onModuleInit();
 
-      expect(mockTool).toHaveBeenCalledTimes(3);
+      expect(mockTool).toHaveBeenCalledTimes(5);
       expect(mockTool).toHaveBeenCalledWith('slack_ask', expect.any(String), expect.any(Object), expect.any(Function));
       expect(mockTool).toHaveBeenCalledWith('slack_notify', expect.any(String), expect.any(Object), expect.any(Function));
       expect(mockTool).toHaveBeenCalledWith('slack_wait_response', expect.any(String), expect.any(Object), expect.any(Function));
+      expect(mockTool).toHaveBeenCalledWith('slack_check_commands', expect.any(String), expect.any(Object), expect.any(Function));
+      expect(mockTool).toHaveBeenCalledWith('slack_command_result', expect.any(String), expect.any(Object), expect.any(Function));
     });
 
     it('should connect via StdioServerTransport', async () => {
