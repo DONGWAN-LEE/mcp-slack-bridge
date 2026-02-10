@@ -4,11 +4,8 @@
     "outDir": "../dist/hooks",
     "declaration": false,
     "baseUrl": "../",
-    "paths": {
-      "@app/shared": ["libs/shared/src"],
-      "@app/shared/*": ["libs/shared/src/*"]
-    }
+    "paths": {}
   },
-  "include": ["./**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": ["./**/*.ts", "../libs/shared/src/**/*.ts"],
+  "exclude": ["node_modules", "**/*.spec.ts", "__tests__/**"]
 }

@@ -7,8 +7,10 @@ import {
 import { ConfigType } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
 import { execSync } from 'child_process';
+import { unlinkSync } from 'fs';
 import { join, basename } from 'path';
 import { SessionMeta } from '@app/shared/types/session.types';
+import { CurrentSessionFile } from '@app/shared/types/hook.types';
 import { sessionConfig, pathsConfig } from '@app/shared/config/configuration';
 import {
   atomicWriteJson,
@@ -85,6 +87,16 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     // Start heartbeat interval
     this.startHeartbeat(sessionDir);
 
+    // Write .current-session file for hook scripts
+    const currentSessionFile: CurrentSessionFile = {
+      sessionId,
+      projectPath,
+      createdAt: now,
+      pid: process.pid,
+    };
+    const currentSessionPath = join(this.pathsCfg.stateDir, '.current-session');
+    atomicWriteJson(currentSessionPath, currentSessionFile);
+
     this.currentSession = meta;
     console.error(`[Session] Created: ${sessionId} (${environment.displayName})`);
 
@@ -119,6 +131,17 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       console.error(`[Session] Terminated: ${this.currentSession.sessionId}`);
     } catch (e) {
       console.error(`[Session] Failed to write terminated status: ${e}`);
+    }
+
+    // Remove .current-session if it matches this session
+    try {
+      const currentSessionPath = join(this.pathsCfg.stateDir, '.current-session');
+      const currentFile = readJsonFile<CurrentSessionFile>(currentSessionPath);
+      if (currentFile && currentFile.sessionId === this.currentSession.sessionId) {
+        unlinkSync(currentSessionPath);
+      }
+    } catch {
+      // File may not exist, ignore
     }
 
     this.currentSession = null;

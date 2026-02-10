@@ -9,7 +9,8 @@
     "build:shared": "nest build shared",
     "build:bot": "nest build bot-service",
     "build:mcp": "nest build mcp-server",
-    "build:all": "nest build shared && nest build bot-service && nest build mcp-server",
+    "build:hooks": "tsc -p hooks/tsconfig.hooks.json",
+    "build:all": "nest build shared && nest build bot-service && nest build mcp-server && npm run build:hooks",
     "start:bot": "nest start bot-service",
     "start:mcp": "nest start mcp-server",
     "start:bot:dev": "nest start bot-service --watch",
@@ -55,7 +56,7 @@
     "collectCoverageFrom": ["**/*.(t|j)s"],
     "coverageDirectory": "./coverage",
     "testEnvironment": "node",
-    "roots": ["<rootDir>/apps/", "<rootDir>/libs/"],
+    "roots": ["<rootDir>/apps/", "<rootDir>/libs/", "<rootDir>/hooks/"],
     "moduleNameMapper": {
       "^@app/shared(|/.*)$": "<rootDir>/libs/shared/src/$1"
     }
