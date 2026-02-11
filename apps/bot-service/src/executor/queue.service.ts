@@ -183,11 +183,12 @@ export class QueueService {
     }
   }
 
-  async cleanCompleted(): Promise<void> {
+  async cleanCompleted(): Promise<number> {
     await this.lock.acquire();
     try {
       const queue = this.readQueue();
       const cutoff = Date.now() - 3600000; // 1 hour
+      const before = queue.queue.length;
       queue.queue = queue.queue.filter((j) => {
         if (j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled' || j.status === 'stopped') {
           const completedMs = j.completedAt
@@ -202,6 +203,7 @@ export class QueueService {
         return true;
       });
       atomicWriteJson(this.queuePath, queue);
+      return before - queue.queue.length;
     } finally {
       this.lock.release();
     }

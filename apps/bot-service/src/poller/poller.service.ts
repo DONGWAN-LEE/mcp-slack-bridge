@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { join } from 'path';
-import { readdirSync, statSync } from 'fs';
+import { readdirSync, statSync, rmSync } from 'fs';
 import { SlackService } from '../slack/slack.service';
 import { SessionThreadService } from './session-thread.service';
 import {
@@ -82,6 +82,7 @@ export class PollerService implements OnModuleInit, OnModuleDestroy {
       }
 
       await this.cleanStaleSessions(sessionsDir);
+      this.cleanTerminatedSessions(sessionsDir);
     } catch (err) {
       this.logger.error(`Poll error: ${(err as Error).message}`);
     } finally {
@@ -280,7 +281,8 @@ export class PollerService implements OnModuleInit, OnModuleDestroy {
       try {
         const stat = statSync(heartbeatPath);
         isStale = Date.now() - stat.mtimeMs > this.sessionCfg.staleMs;
-      } catch {
+      } catch (err) {
+        this.logger.debug(`Heartbeat file not found for session ${sessionId.slice(0, 8)}: ${(err as Error).message}`);
         const createdMs = new Date(meta.createdAt).getTime();
         isStale = Date.now() - createdMs > this.sessionCfg.staleMs;
       }
@@ -305,7 +307,28 @@ export class PollerService implements OnModuleInit, OnModuleDestroy {
         this.knownNotifications.delete(sessionId);
         this.knownSessions.delete(sessionId);
         this.sessionThreadService.unregisterSession(sessionId);
-        this.logger.log(`Stale session terminated: ${sessionId.slice(0, 8)}`);
+        this.logger.warn(`Stale session terminated: ${sessionId.slice(0, 8)}`);
+      }
+    }
+  }
+
+  private cleanTerminatedSessions(sessionsDir: string): void {
+    const sessionIds = this.listDirectories(sessionsDir);
+
+    for (const sessionId of sessionIds) {
+      const sessionDir = join(sessionsDir, sessionId);
+      const metaPath = join(sessionDir, 'meta.json');
+      const meta = readJsonFile<SessionMeta>(metaPath);
+      if (!meta || meta.status !== 'terminated') continue;
+
+      const lastActiveMs = new Date(meta.lastActiveAt || meta.createdAt).getTime();
+      if (Date.now() - lastActiveMs > 3600000) { // 1 hour
+        try {
+          rmSync(sessionDir, { recursive: true, force: true });
+          this.logger.log(`Terminated session directory removed: ${sessionId.slice(0, 8)}`);
+        } catch (err) {
+          this.logger.error(`Failed to remove session directory ${sessionId.slice(0, 8)}: ${(err as Error).message}`);
+        }
       }
     }
   }
@@ -315,7 +338,8 @@ export class PollerService implements OnModuleInit, OnModuleDestroy {
       return readdirSync(dirPath, { withFileTypes: true })
         .filter((d) => d.isDirectory())
         .map((d) => d.name);
-    } catch {
+    } catch (err) {
+      this.logger.debug(`Directory not found: ${dirPath} (${(err as Error).message})`);
       return [];
     }
   }
@@ -323,7 +347,8 @@ export class PollerService implements OnModuleInit, OnModuleDestroy {
   private listJsonFiles(dirPath: string): string[] {
     try {
       return readdirSync(dirPath).filter((f) => f.endsWith('.json'));
-    } catch {
+    } catch (err) {
+      this.logger.debug(`Directory not found: ${dirPath} (${(err as Error).message})`);
       return [];
     }
   }

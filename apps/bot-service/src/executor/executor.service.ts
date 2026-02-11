@@ -25,6 +25,7 @@ export class ExecutorService implements OnModuleDestroy {
   private readonly logger = new Logger(ExecutorService.name);
   private readonly activeProcesses = new Map<string, ChildProcess>();
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly queueService: QueueService,
@@ -37,12 +38,26 @@ export class ExecutorService implements OnModuleDestroy {
     private readonly queueCfg: ConfigType<typeof queueConfig>,
   ) {
     this.pollTimer = setInterval(() => this.processQueue(), 3000);
+    this.cleanupTimer = setInterval(async () => {
+      try {
+        const removed = await this.queueService.cleanCompleted();
+        if (removed > 0) {
+          this.logger.log(`Queue cleanup: ${removed} completed jobs removed`);
+        }
+      } catch (err) {
+        this.logger.error(`Queue cleanup error: ${(err as Error).message}`);
+      }
+    }, 3600000); // 1 hour
   }
 
   onModuleDestroy(): void {
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
+    }
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
     }
     for (const [jobId, proc] of this.activeProcesses) {
       this.killProcess(proc, jobId);
@@ -166,7 +181,7 @@ export class ExecutorService implements OnModuleDestroy {
     try {
       const proc = spawn('claude', ['-p', modePrompt, '--output-format', 'json'], {
         cwd: workingDir,
-        shell: false,
+        shell: process.platform === 'win32',
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
