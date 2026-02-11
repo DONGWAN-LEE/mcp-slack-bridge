@@ -400,7 +400,8 @@ export class CommandHandler implements OnModuleInit {
       return readdirSync(dirPath, { withFileTypes: true })
         .filter((d) => d.isDirectory())
         .map((d) => d.name);
-    } catch {
+    } catch (err) {
+      this.logger.debug(`listDirectories failed for ${dirPath}: ${(err as Error).message}`);
       return [];
     }
   }

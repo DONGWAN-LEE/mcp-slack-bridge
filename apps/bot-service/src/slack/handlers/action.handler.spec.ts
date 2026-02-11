@@ -110,6 +110,17 @@ describe('ActionHandler', () => {
     expect(slackService.updateMessage).not.toHaveBeenCalled();
   });
 
+  it('should reject unauthorized channels', async () => {
+    slackService.isAllowedChannel.mockReturnValue(false);
+
+    const ctx = createCtx('approve:session-uuid:q-123');
+    await registeredHandler(ctx);
+
+    expect(ctx.ack).toHaveBeenCalled();
+    expect(fileUtils.atomicWriteJson).not.toHaveBeenCalled();
+    expect(slackService.updateMessage).not.toHaveBeenCalled();
+  });
+
   it('should ignore invalid action_id format', async () => {
     const ctx = createCtx('invalid-format');
     await registeredHandler(ctx);

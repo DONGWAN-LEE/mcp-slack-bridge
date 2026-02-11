@@ -259,6 +259,22 @@ describe('MentionHandler', () => {
     });
   });
 
+  describe('unauthorized channel', () => {
+    it('should silently ignore unauthorized channels', async () => {
+      mockSlackService.isAllowedChannel.mockReturnValue(false);
+
+      await handler.handleMention({
+        user: 'U123',
+        channel: 'C_BAD',
+        text: '<@BOTID> stop',
+        thread_ts: 'ts-123',
+      });
+
+      expect(mockExecutorService.stopJobByThreadTs).not.toHaveBeenCalled();
+      expect(mockSlackService.postMessage).not.toHaveBeenCalled();
+    });
+  });
+
   describe('strip mention', () => {
     it('should handle multiple mentions in text', async () => {
       await handler.handleMention({
