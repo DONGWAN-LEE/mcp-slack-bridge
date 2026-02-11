@@ -87,6 +87,11 @@ export class SlackService implements OnModuleInit, OnModuleDestroy {
     return this.secCfg.allowedUserIds.includes(userId);
   }
 
+  isAllowedChannel(channelId: string): boolean {
+    if (this.secCfg.allowedChannelIds.length === 0) return true;
+    return this.secCfg.allowedChannelIds.includes(channelId);
+  }
+
   getChannelId(): string {
     return this.slackCfg.channelId!;
   }

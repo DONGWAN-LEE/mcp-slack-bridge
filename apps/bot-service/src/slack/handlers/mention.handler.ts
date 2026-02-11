@@ -50,6 +50,9 @@ export class MentionHandler implements OnModuleInit {
       }
 
       const channel = event.channel;
+      if (!this.slackService.isAllowedChannel(channel)) {
+        return;
+      }
       const text = this.stripMention(event.text || '').trim();
 
       if (!text) {

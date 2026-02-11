@@ -25,6 +25,7 @@ describe('MentionHandler', () => {
         }),
       }),
       isAllowedUser: jest.fn().mockReturnValue(true),
+      isAllowedChannel: jest.fn().mockReturnValue(true),
       getChannelId: jest.fn().mockReturnValue('C123'),
       postMessage: jest.fn().mockResolvedValue({ ts: '456' }),
     };

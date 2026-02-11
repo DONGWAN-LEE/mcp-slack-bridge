@@ -24,6 +24,7 @@ describe('ActionHandler', () => {
         }),
       }),
       isAllowedUser: jest.fn().mockReturnValue(true),
+      isAllowedChannel: jest.fn().mockReturnValue(true),
       getChannelId: jest.fn().mockReturnValue('C12345'),
       postMessage: jest.fn().mockResolvedValue({ ts: '111.222' }),
       updateMessage: jest.fn().mockResolvedValue(undefined),
