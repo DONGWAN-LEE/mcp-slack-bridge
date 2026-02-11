@@ -26,7 +26,12 @@ export class FileBridgeService {
       'questions',
       `${question.questionId}.json`,
     );
-    atomicWriteJson(filePath, question);
+    try {
+      atomicWriteJson(filePath, question);
+    } catch (err) {
+      console.error(`[FileBridge] Failed to write question ${question.questionId}: ${(err as Error).message}`);
+      throw err;
+    }
   }
 
   readResponse(sessionId: string, questionId: string): ResponseFile | null {
@@ -52,7 +57,12 @@ export class FileBridgeService {
       'notifications',
       `${notification.notificationId}.json`,
     );
-    atomicWriteJson(filePath, notification);
+    try {
+      atomicWriteJson(filePath, notification);
+    } catch (err) {
+      console.error(`[FileBridge] Failed to write notification ${notification.notificationId}: ${(err as Error).message}`);
+      throw err;
+    }
   }
 
   updateQuestionStatus(
@@ -69,10 +79,14 @@ export class FileBridgeService {
       'questions',
       `${questionId}.json`,
     );
-    const question = readJsonFile<QuestionFile>(filePath);
-    if (question) {
-      question.status = status;
-      atomicWriteJson(filePath, question);
+    try {
+      const question = readJsonFile<QuestionFile>(filePath);
+      if (question) {
+        question.status = status;
+        atomicWriteJson(filePath, question);
+      }
+    } catch (err) {
+      console.error(`[FileBridge] Failed to update question status ${questionId}: ${(err as Error).message}`);
     }
   }
 
@@ -96,7 +110,8 @@ export class FileBridgeService {
       return commands.sort(
         (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
       );
-    } catch {
+    } catch (err) {
+      console.error(`[FileBridge] Failed to read pending commands for session ${sessionId}: ${(err as Error).message}`);
       return [];
     }
   }
@@ -115,10 +130,14 @@ export class FileBridgeService {
       'commands',
       `${commandId}.json`,
     );
-    const cmd = readJsonFile<CommandFile>(filePath);
-    if (cmd) {
-      cmd.status = status;
-      atomicWriteJson(filePath, cmd);
+    try {
+      const cmd = readJsonFile<CommandFile>(filePath);
+      if (cmd) {
+        cmd.status = status;
+        atomicWriteJson(filePath, cmd);
+      }
+    } catch (err) {
+      console.error(`[FileBridge] Failed to update command status ${commandId}: ${(err as Error).message}`);
     }
   }
 
@@ -132,7 +151,12 @@ export class FileBridgeService {
       'command-results',
       `${result.commandId}.json`,
     );
-    atomicWriteJson(filePath, result);
+    try {
+      atomicWriteJson(filePath, result);
+    } catch (err) {
+      console.error(`[FileBridge] Failed to write command result ${result.commandId}: ${(err as Error).message}`);
+      throw err;
+    }
   }
 
   private validatePathSegment(segment: string): void {

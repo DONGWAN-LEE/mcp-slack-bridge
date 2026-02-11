@@ -26,24 +26,32 @@ export function registerSlackCommandResultTool(
         };
       }
 
-      const sessionId = session.sessionId;
-      const resultFile: CommandResultFile = {
-        commandId: args.commandId,
-        sessionId,
-        result: args.result,
-        status: args.status ?? 'success',
-        completedAt: new Date().toISOString(),
-      };
+      try {
+        const sessionId = session.sessionId;
+        const resultFile: CommandResultFile = {
+          commandId: args.commandId,
+          sessionId,
+          result: args.result,
+          status: args.status ?? 'success',
+          completedAt: new Date().toISOString(),
+        };
 
-      fileBridge.writeCommandResult(resultFile);
-      fileBridge.updateCommandStatus(sessionId, args.commandId, 'completed');
+        fileBridge.writeCommandResult(resultFile);
+        fileBridge.updateCommandStatus(sessionId, args.commandId, 'completed');
 
-      return {
-        content: [{
-          type: 'text' as const,
-          text: JSON.stringify({ success: true, commandId: args.commandId }),
-        }],
-      };
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({ success: true, commandId: args.commandId }),
+          }],
+        };
+      } catch (err) {
+        console.error(`[slack_command_result] Error: ${(err as Error).message}`);
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: 'internal_error', message: (err as Error).message }) }],
+          isError: true,
+        };
+      }
     },
   );
 }

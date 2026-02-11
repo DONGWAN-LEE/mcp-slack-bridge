@@ -44,23 +44,35 @@ export function registerSlackAskTool(
         status: 'pending',
       };
 
-      fileBridge.writeQuestion(questionFile);
+      try {
+        fileBridge.writeQuestion(questionFile);
+      } catch (err) {
+        console.error(`[slack_ask] Failed to write question: ${(err as Error).message}`);
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: 'write_failed', message: (err as Error).message }) }],
+          isError: true,
+        };
+      }
 
       const startTime = Date.now();
       while (Date.now() - startTime < timeout) {
-        const response = fileBridge.readResponse(sessionId, questionId);
-        if (response) {
-          fileBridge.updateQuestionStatus(sessionId, questionId, 'answered');
-          return {
-            content: [{
-              type: 'text' as const,
-              text: JSON.stringify({
-                answer: response.answer,
-                respondedBy: response.respondedBy,
-                timestamp: response.respondedAt,
-              }),
-            }],
-          };
+        try {
+          const response = fileBridge.readResponse(sessionId, questionId);
+          if (response) {
+            fileBridge.updateQuestionStatus(sessionId, questionId, 'answered');
+            return {
+              content: [{
+                type: 'text' as const,
+                text: JSON.stringify({
+                  answer: response.answer,
+                  respondedBy: response.respondedBy,
+                  timestamp: response.respondedAt,
+                }),
+              }],
+            };
+          }
+        } catch (pollErr) {
+          console.error(`[slack_ask] Poll error: ${(pollErr as Error).message}`);
         }
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
       }
