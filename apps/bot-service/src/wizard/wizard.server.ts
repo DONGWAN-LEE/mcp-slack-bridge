@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
-import express, { Express } from 'express';
+import * as express from 'express';
+import { Express } from 'express';
 import { Server } from 'http';
 import { join } from 'path';
 import { createWizardRouter } from './wizard.routes';
