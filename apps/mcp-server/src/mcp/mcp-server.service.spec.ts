@@ -1,6 +1,7 @@
 import { McpServerService } from './mcp-server.service';
 import { SessionService } from '../session/session.service';
 import { FileBridgeService } from '../bridge/file-bridge.service';
+import { CommandWatcherService } from './command-watcher.service';
 
 // Mock uuid ESM module (used by SessionService)
 jest.mock('uuid', () => ({
@@ -35,6 +36,7 @@ describe('McpServerService', () => {
   let service: McpServerService;
   let sessionService: Partial<SessionService>;
   let fileBridge: Partial<FileBridgeService>;
+  let commandWatcher: Partial<CommandWatcherService>;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -47,10 +49,16 @@ describe('McpServerService', () => {
       writeNotification: jest.fn(),
       updateQuestionStatus: jest.fn(),
     };
+    commandWatcher = {
+      startWatching: jest.fn(),
+      stopWatching: jest.fn(),
+      onModuleDestroy: jest.fn(),
+    };
 
     service = new McpServerService(
       sessionService as SessionService,
       fileBridge as FileBridgeService,
+      commandWatcher as CommandWatcherService,
     );
   });
 
@@ -75,13 +83,34 @@ describe('McpServerService', () => {
 
       expect(mockConnect).toHaveBeenCalledTimes(1);
     });
+
+    it('should start command watcher when session exists', async () => {
+      const mockSession = { sessionId: 'test-session-id' };
+      (sessionService.getSession as jest.Mock).mockReturnValue(mockSession);
+
+      await service.onModuleInit();
+
+      expect(commandWatcher.startWatching).toHaveBeenCalledWith(
+        'test-session-id',
+        expect.any(Object),
+      );
+    });
+
+    it('should not start command watcher when no session', async () => {
+      (sessionService.getSession as jest.Mock).mockReturnValue(null);
+
+      await service.onModuleInit();
+
+      expect(commandWatcher.startWatching).not.toHaveBeenCalled();
+    });
   });
 
   describe('onModuleDestroy', () => {
-    it('should close McpServer', async () => {
+    it('should stop command watcher and close McpServer', async () => {
       await service.onModuleInit();
       await service.onModuleDestroy();
 
+      expect(commandWatcher.stopWatching).toHaveBeenCalledTimes(1);
       expect(mockClose).toHaveBeenCalledTimes(1);
     });
   });
