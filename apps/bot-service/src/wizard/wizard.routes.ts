@@ -301,8 +301,8 @@ export function createWizardRouter(
 
       res.json({ success: true });
 
-      // Signal completion after response is sent
-      setTimeout(onComplete, 500);
+      // Signal completion (setTimeout is handled by startWizardServer)
+      onComplete();
     } catch (err) {
       res.status(500).json({
         success: false,
@@ -316,7 +316,7 @@ export function createWizardRouter(
    */
   router.post('/skip', (_req: Request, res: Response) => {
     res.json({ success: true });
-    setTimeout(onSkip, 500);
+    onSkip();
   });
 
   return router;

@@ -1,83 +1,119 @@
-import { EventEmitter } from 'events';
 import express, { Express } from 'express';
 import { Server } from 'http';
+import { Socket } from 'net';
 import { join } from 'path';
+import { spawn } from 'child_process';
 import { createWizardRouter } from './wizard.routes';
 import { WizardMode } from './wizard.types';
 
 const DEFAULT_PORT = 3456;
+const WIZARD_TIMEOUT_MS = 5 * 60 * 1000;
 
-export class WizardServer extends EventEmitter {
-  private app: Express;
-  private server: Server | null = null;
-  private port: number;
+function openBrowser(url: string): void {
+  const cmd =
+    process.platform === 'win32'
+      ? 'start'
+      : process.platform === 'darwin'
+        ? 'open'
+        : 'xdg-open';
+  spawn(cmd, [url], { shell: true, detached: true, stdio: 'ignore' });
+}
 
-  constructor() {
-    super();
-    this.port = parseInt(process.env.WIZARD_PORT || '', 10) || DEFAULT_PORT;
-    this.app = express();
-  }
+/**
+ * Setup Wizard Express 서버를 시작합니다.
+ *
+ * Promise를 반환하며, 사용자가 설정 완료 또는 Skip 시 resolve됩니다.
+ * nestjs-vibe-engine의 startSetupServer 패턴을 따릅니다.
+ */
+export function startWizardServer(
+  mode: WizardMode,
+  projectRoot: string,
+  existingEnv: Record<string, string>,
+): Promise<void> {
+  const port = parseInt(process.env.WIZARD_PORT || '', 10) || DEFAULT_PORT;
 
-  async start(
-    mode: WizardMode,
-    existingEnv?: Record<string, string>,
-  ): Promise<void> {
-    this.app.use(express.json());
+  return new Promise<void>((resolve, reject) => {
+    const app: Express = express();
+    let server: Server;
+    const openSockets = new Set<Socket>();
 
-    // Serve static files from public/
-    this.app.use(express.static(join(__dirname, 'public')));
+    const timer = setTimeout(() => {
+      shutdown();
+      reject(
+        new Error(
+          '.env 파일이 없거나 불완전하고 Setup Wizard 시간이 초과되었습니다. ' +
+            '.env.example을 참고하여 .env를 수동으로 생성해주세요.',
+        ),
+      );
+    }, WIZARD_TIMEOUT_MS);
 
-    // API routes
-    const projectRoot = process.cwd();
+    function shutdown(): void {
+      clearTimeout(timer);
+      for (const socket of openSockets) {
+        socket.destroy();
+      }
+      openSockets.clear();
+      if (server) {
+        server.close();
+      }
+    }
+
+    function complete(): void {
+      shutdown();
+      resolve();
+    }
+
+    app.use(express.json());
+    app.use(express.static(join(__dirname, 'public')));
+
     const router = createWizardRouter(
       mode,
       projectRoot,
-      existingEnv || {},
-      // onComplete callback
-      () => {
-        this.emit('complete');
-        this.stop();
-      },
-      // onSkip callback
-      () => {
-        this.emit('skip');
-        this.stop();
-      },
+      existingEnv,
+      () => setTimeout(complete, 500),
+      () => setTimeout(complete, 500),
     );
-    this.app.use('/api', router);
+    app.use('/api', router);
 
-    // SPA fallback: serve index.html for non-API routes
-    this.app.get('*', (_req, res) => {
+    app.get('*', (_req, res) => {
       res.sendFile(join(__dirname, 'public', 'index.html'));
     });
 
-    return new Promise<void>((resolve, reject) => {
-      this.server = this.app
-        .listen(this.port, '127.0.0.1', () => {
-          resolve();
-        })
-        .on('error', (err: NodeJS.ErrnoException) => {
-          if (err.code === 'EADDRINUSE') {
-            reject(
-              new Error(
-                `포트 ${this.port}이(가) 이미 사용 중입니다. WIZARD_PORT 환경변수로 다른 포트를 지정해주세요.`,
-              ),
-            );
-          } else {
-            reject(err);
-          }
-        });
+    server = app.listen(port, '127.0.0.1', () => {
+      const url = `http://localhost:${port}`;
+      const message =
+        mode === 'fresh'
+          ? '.env 파일이 없습니다.'
+          : '.env 파일에 필수 값이 누락되어 있습니다.';
+
+      console.log(
+        `\n` +
+          `============================================\n` +
+          `  ${message}\n` +
+          `  Setup Wizard를 시작합니다.\n` +
+          `  브라우저: ${url}\n` +
+          `============================================`,
+      );
+
+      openBrowser(url);
     });
-  }
 
-  getUrl(): string {
-    return `http://localhost:${this.port}`;
-  }
+    server.on('connection', (socket: Socket) => {
+      openSockets.add(socket);
+      socket.on('close', () => openSockets.delete(socket));
+    });
 
-  private stop(): void {
-    if (this.server) {
-      this.server.close();
-      this.server = null;
-    }
-  }
+    server.on('error', (err: NodeJS.ErrnoException) => {
+      clearTimeout(timer);
+      if (err.code === 'EADDRINUSE') {
+        reject(
+          new Error(
+            `포트 ${port}이(가) 이미 사용 중입니다. WIZARD_PORT 환경변수로 다른 포트를 지정해주세요.`,
+          ),
+        );
+      } else {
+        reject(err);
+      }
+    });
+  });
 }
