@@ -171,10 +171,41 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
         };
         atomicWriteJson(metaPath, updated);
         this.currentSession = updated;
+
+        this.ensureCurrentSessionFile();
       } catch (e) {
         console.error(`[Session] Heartbeat failed: ${e}`);
       }
     }, this.sessionCfg.heartbeatMs);
+  }
+
+  private ensureCurrentSessionFile(): void {
+    if (!this.currentSession) return;
+
+    const currentSessionPath = join(this.pathsCfg.stateDir, '.current-session');
+    const currentFile = readJsonFile<CurrentSessionFile>(currentSessionPath);
+
+    // Already pointing to this session
+    if (currentFile && currentFile.sessionId === this.currentSession.sessionId) {
+      return;
+    }
+
+    // Different session owns .current-session — do NOT overwrite
+    if (currentFile && currentFile.sessionId) {
+      return;
+    }
+
+    // File is missing — restore it
+    const newFile: CurrentSessionFile = {
+      sessionId: this.currentSession.sessionId,
+      projectPath: this.currentSession.projectPath,
+      createdAt: this.currentSession.createdAt,
+      pid: process.pid,
+    };
+    atomicWriteJson(currentSessionPath, newFile);
+    console.error(
+      `[Session] .current-session restored for ${this.currentSession.sessionId.slice(0, 8)}`,
+    );
   }
 
   private detectGitBranch(projectPath: string): string | undefined {

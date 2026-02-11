@@ -172,6 +172,75 @@ describe('SessionService', () => {
       expect(lastMeta.slackThreadTs).toBe('1234.5678');
       expect(lastMeta.status).toBe('active');
     });
+
+    it('should restore .current-session when missing', () => {
+      const session = service.createSession('/test/project');
+
+      // readJsonFile: meta.json returns session, .current-session returns null (missing)
+      (fileUtils.readJsonFile as jest.Mock).mockImplementation((path: string) => {
+        if (path.includes('.current-session')) return null;
+        return { ...session };
+      });
+
+      jest.advanceTimersByTime(30000);
+
+      const writeCalls = (fileUtils.atomicWriteJson as jest.Mock).mock.calls;
+      // Should have written meta.json + .current-session
+      const currentSessionWrite = writeCalls.find(
+        (call: any[]) => call[0].includes('.current-session'),
+      );
+      expect(currentSessionWrite).toBeDefined();
+      expect(currentSessionWrite![1]).toEqual(
+        expect.objectContaining({
+          sessionId: 'test-uuid-1234',
+          projectPath: '/test/project',
+          pid: process.pid,
+        }),
+      );
+    });
+
+    it('should NOT rewrite .current-session when it already matches', () => {
+      const session = service.createSession('/test/project');
+
+      // readJsonFile: both meta.json and .current-session return valid data
+      (fileUtils.readJsonFile as jest.Mock).mockImplementation((path: string) => {
+        if (path.includes('.current-session')) {
+          return { sessionId: 'test-uuid-1234', projectPath: '/test/project', pid: process.pid };
+        }
+        return { ...session };
+      });
+
+      (fileUtils.atomicWriteJson as jest.Mock).mockClear();
+      jest.advanceTimersByTime(30000);
+
+      const writeCalls = (fileUtils.atomicWriteJson as jest.Mock).mock.calls;
+      // Should only have meta.json write, NOT .current-session
+      const currentSessionWrites = writeCalls.filter(
+        (call: any[]) => call[0].includes('.current-session'),
+      );
+      expect(currentSessionWrites).toHaveLength(0);
+    });
+
+    it('should NOT overwrite .current-session owned by another session', () => {
+      const session = service.createSession('/test/project');
+
+      // .current-session belongs to a different session
+      (fileUtils.readJsonFile as jest.Mock).mockImplementation((path: string) => {
+        if (path.includes('.current-session')) {
+          return { sessionId: 'other-session-id', projectPath: '/other', pid: 9999 };
+        }
+        return { ...session };
+      });
+
+      (fileUtils.atomicWriteJson as jest.Mock).mockClear();
+      jest.advanceTimersByTime(30000);
+
+      const writeCalls = (fileUtils.atomicWriteJson as jest.Mock).mock.calls;
+      const currentSessionWrites = writeCalls.filter(
+        (call: any[]) => call[0].includes('.current-session'),
+      );
+      expect(currentSessionWrites).toHaveLength(0);
+    });
   });
 
   describe('terminateSession', () => {
