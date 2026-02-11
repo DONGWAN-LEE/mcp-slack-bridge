@@ -35,6 +35,7 @@ export function startWizardServer(
   return new Promise<void>((resolve, reject) => {
     const app: Express = express();
     let server: Server;
+    let settled = false;
     const openSockets = new Set<Socket>();
 
     const timer = setTimeout(() => {
@@ -48,6 +49,8 @@ export function startWizardServer(
     }, WIZARD_TIMEOUT_MS);
 
     function shutdown(): void {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       for (const socket of openSockets) {
         socket.destroy();
@@ -63,6 +66,11 @@ export function startWizardServer(
       resolve();
     }
 
+    function onDone(): void {
+      clearTimeout(timer);
+      setTimeout(complete, 500);
+    }
+
     app.use(express.json());
     app.use(express.static(join(__dirname, 'public')));
 
@@ -70,8 +78,8 @@ export function startWizardServer(
       mode,
       projectRoot,
       existingEnv,
-      () => setTimeout(complete, 500),
-      () => setTimeout(complete, 500),
+      onDone,
+      onDone,
     );
     app.use('/api', router);
 
