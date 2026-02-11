@@ -15,7 +15,7 @@ jest.mock('fs', () => ({
 const COOLDOWN_MS = 10_000;
 const SKIP_TOOLS = [
   'slack_check_commands',
-  'slack_command_result',
+  // slack_command_result is intentionally NOT skipped
   'slack_ask',
   'slack_notify',
   'slack_wait_response',
@@ -59,32 +59,41 @@ describe('on-check-commands logic', () => {
     const session = resolveSession('./state');
     if (!session) return;
 
-    // Cooldown check
-    const markerPath = join(session.sessionDir, '.command-notify-ts');
-    if (lastNotifyTs !== undefined) {
-      (readFileSync as jest.Mock).mockImplementation((path: string) => {
-        if (path === markerPath) return String(lastNotifyTs);
-        // For command files, handled below
-        const file = pendingFiles.find((f) => path.endsWith(f.name));
-        if (file) return JSON.stringify({ status: file.status });
-        throw new Error('File not found');
-      });
+    const isCommandResult = toolName?.includes('slack_command_result') ?? false;
 
-      const lastNotify = parseInt((readFileSync as jest.Mock)(markerPath), 10);
-      if (Date.now() - lastNotify < COOLDOWN_MS) return;
+    // Cooldown check — slack_command_result bypasses cooldown
+    const markerPath = join(session.sessionDir, '.command-notify-ts');
+    if (!isCommandResult) {
+      if (lastNotifyTs !== undefined) {
+        (readFileSync as jest.Mock).mockImplementation((path: string) => {
+          if (path === markerPath) return String(lastNotifyTs);
+          const file = pendingFiles.find((f) => path.endsWith(f.name));
+          if (file) return JSON.stringify({ status: file.status });
+          throw new Error('File not found');
+        });
+
+        const lastNotify = parseInt((readFileSync as jest.Mock)(markerPath), 10);
+        if (Date.now() - lastNotify < COOLDOWN_MS) return;
+      } else {
+        (readFileSync as jest.Mock).mockImplementation((path: string) => {
+          if (path === markerPath) throw new Error('ENOENT');
+          const file = pendingFiles.find((f) => path.endsWith(f.name));
+          if (file) return JSON.stringify({ status: file.status });
+          throw new Error('File not found');
+        });
+        try {
+          parseInt((readFileSync as jest.Mock)(markerPath), 10);
+        } catch {
+          // No marker - continue
+        }
+      }
     } else {
+      // isCommandResult — set up readFileSync for command files only
       (readFileSync as jest.Mock).mockImplementation((path: string) => {
-        if (path === markerPath) throw new Error('ENOENT');
         const file = pendingFiles.find((f) => path.endsWith(f.name));
         if (file) return JSON.stringify({ status: file.status });
         throw new Error('File not found');
       });
-      // Attempt to read marker - will throw
-      try {
-        parseInt((readFileSync as jest.Mock)(markerPath), 10);
-      } catch {
-        // No marker - continue
-      }
     }
 
     // Check for pending commands
@@ -111,15 +120,28 @@ describe('on-check-commands logic', () => {
         }
       }
 
+      (writeFileSync as jest.Mock)(markerPath, String(Date.now()));
+
       if (pendingCount > 0) {
-        (writeFileSync as jest.Mock)(markerPath, String(Date.now()));
         console.log(
           `[Slack 명령 ${pendingCount}건 대기 중] ` +
             `slack_check_commands 도구를 호출하여 Slack에서 전달된 명령을 확인하고 실행해주세요.`,
         );
+      } else if (isCommandResult) {
+        console.log(
+          '[Slack 명령 처리 완료] ' +
+            'slack_check_commands 도구를 blocking=true로 호출하여 다음 Slack 명령을 대기해주세요.',
+        );
       }
     } catch {
       // commands directory doesn't exist
+      if (isCommandResult) {
+        (writeFileSync as jest.Mock)(markerPath, String(Date.now()));
+        console.log(
+          '[Slack 명령 처리 완료] ' +
+            'slack_check_commands 도구를 blocking=true로 호출하여 다음 Slack 명령을 대기해주세요.',
+        );
+      }
     }
   }
 
@@ -249,6 +271,45 @@ describe('on-check-commands logic', () => {
     expect(pendingCount).toBe(1);
     expect(consoleLogSpy).toHaveBeenCalledWith(
       expect.stringContaining('Slack 명령 1건 대기 중'),
+    );
+  });
+
+  it('should NOT skip slack_command_result tool', () => {
+    simulateHook({
+      toolName: 'mcp__slack-bridge__slack_command_result',
+      pendingFiles: [{ name: 'cmd-1.json', status: 'pending' }],
+    });
+
+    expect(resolveSession).toHaveBeenCalled();
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Slack 명령 1건 대기 중'),
+    );
+  });
+
+  it('should output re-entry message after slack_command_result with no pending', () => {
+    simulateHook({
+      toolName: 'mcp__slack-bridge__slack_command_result',
+      pendingFiles: [{ name: 'cmd-1.json', status: 'completed' }],
+    });
+
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Slack 명령 처리 완료'),
+    );
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining('blocking=true'),
+    );
+  });
+
+  it('should bypass cooldown for slack_command_result', () => {
+    simulateHook({
+      toolName: 'mcp__slack-bridge__slack_command_result',
+      lastNotifyTs: Date.now() - 1000, // 1 second ago (within 10s cooldown)
+      pendingFiles: [{ name: 'cmd-1.json', status: 'completed' }],
+    });
+
+    // Should still output despite being within cooldown
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Slack 명령 처리 완료'),
     );
   });
 });
