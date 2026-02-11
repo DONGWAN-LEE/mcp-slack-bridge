@@ -33,6 +33,7 @@ nul
 # Logs
 *.log
 logs/
+!logs/.gitkeep
 
 # Coverage
 coverage/

@@ -142,8 +142,8 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       if (currentFile && currentFile.sessionId === this.currentSession.sessionId) {
         unlinkSync(currentSessionPath);
       }
-    } catch {
-      // File may not exist, ignore
+    } catch (err) {
+      console.error(`[Session] Failed to remove .current-session: ${(err as Error).message}`);
     }
 
     this.currentSession = null;
@@ -184,7 +184,8 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
         encoding: 'utf8',
         timeout: 5000,
       }).trim();
-    } catch {
+    } catch (err) {
+      console.error(`[Session] Failed to detect git branch: ${(err as Error).message}`);
       return undefined;
     }
   }

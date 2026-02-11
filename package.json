@@ -18,7 +18,11 @@
     "lint": "eslint \"{apps,libs}/**/*.ts\"",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:cov": "jest --coverage"
+    "test:cov": "jest --coverage",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop mcp-slack-bridge",
+    "pm2:restart": "pm2 restart mcp-slack-bridge",
+    "pm2:logs": "pm2 logs mcp-slack-bridge"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",

@@ -31,32 +31,10 @@ export function registerSlackCheckCommandsTool(
       const blocking = args.blocking ?? true;
       const timeout = args.timeout ?? DEFAULT_TIMEOUT_MS;
 
-      // Non-blocking: check once and return
-      if (!blocking) {
-        const commands = fileBridge.readPendingCommands(sessionId);
-        for (const cmd of commands) {
-          fileBridge.updateCommandStatus(sessionId, cmd.commandId, 'received');
-        }
-        return {
-          content: [{
-            type: 'text' as const,
-            text: JSON.stringify({
-              commands: commands.map((c) => ({
-                commandId: c.commandId,
-                command: c.command,
-                requestedBy: c.requestedBy,
-                createdAt: c.createdAt,
-              })),
-            }),
-          }],
-        };
-      }
-
-      // Blocking: poll until commands arrive or timeout
-      const startTime = Date.now();
-      while (Date.now() - startTime < timeout) {
-        const commands = fileBridge.readPendingCommands(sessionId);
-        if (commands.length > 0) {
+      try {
+        // Non-blocking: check once and return
+        if (!blocking) {
+          const commands = fileBridge.readPendingCommands(sessionId);
           for (const cmd of commands) {
             fileBridge.updateCommandStatus(sessionId, cmd.commandId, 'received');
           }
@@ -74,16 +52,50 @@ export function registerSlackCheckCommandsTool(
             }],
           };
         }
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-      }
 
-      // Timeout — no commands
-      return {
-        content: [{
-          type: 'text' as const,
-          text: JSON.stringify({ commands: [], message: '대기 시간 초과, 명령 없음' }),
-        }],
-      };
+        // Blocking: poll until commands arrive or timeout
+        const startTime = Date.now();
+        while (Date.now() - startTime < timeout) {
+          try {
+            const commands = fileBridge.readPendingCommands(sessionId);
+            if (commands.length > 0) {
+              for (const cmd of commands) {
+                fileBridge.updateCommandStatus(sessionId, cmd.commandId, 'received');
+              }
+              return {
+                content: [{
+                  type: 'text' as const,
+                  text: JSON.stringify({
+                    commands: commands.map((c) => ({
+                      commandId: c.commandId,
+                      command: c.command,
+                      requestedBy: c.requestedBy,
+                      createdAt: c.createdAt,
+                    })),
+                  }),
+                }],
+              };
+            }
+          } catch (pollErr) {
+            console.error(`[slack_check_commands] Poll error: ${(pollErr as Error).message}`);
+          }
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        }
+
+        // Timeout — no commands
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({ commands: [], message: '대기 시간 초과, 명령 없음' }),
+          }],
+        };
+      } catch (err) {
+        console.error(`[slack_check_commands] Error: ${(err as Error).message}`);
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: 'internal_error', message: (err as Error).message }) }],
+          isError: true,
+        };
+      }
     },
   );
 }

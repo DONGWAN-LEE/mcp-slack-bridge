@@ -50,6 +50,11 @@ export class ModalHandler implements OnModuleInit {
           return;
         }
 
+        if (channelId && !this.slackService.isAllowedChannel(channelId)) {
+          this.logger.warn(`Unauthorized channel in modal: ${channelId}`);
+          return;
+        }
+
         if (!isSafePathSegment(sessionId) || !isSafePathSegment(questionId)) {
           this.logger.warn(`Unsafe path segments in modal metadata: ${sessionId}, ${questionId}`);
           return;

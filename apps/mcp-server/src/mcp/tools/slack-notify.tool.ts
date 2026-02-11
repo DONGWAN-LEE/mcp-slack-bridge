@@ -36,7 +36,15 @@ export function registerSlackNotifyTool(
         createdAt: new Date().toISOString(),
       };
 
-      fileBridge.writeNotification(notification);
+      try {
+        fileBridge.writeNotification(notification);
+      } catch (err) {
+        console.error(`[slack_notify] Failed to write notification: ${(err as Error).message}`);
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: 'write_failed', message: (err as Error).message }) }],
+          isError: true,
+        };
+      }
 
       return {
         content: [{ type: 'text' as const, text: JSON.stringify({ sent: true, notificationId }) }],

@@ -30,6 +30,7 @@ describe('CommandHandler', () => {
         }),
       }),
       isAllowedUser: jest.fn().mockReturnValue(true),
+      isAllowedChannel: jest.fn().mockReturnValue(true),
       getChannelId: jest.fn().mockReturnValue('C123'),
       postMessage: jest.fn().mockResolvedValue({ ts: '123' }),
     };
@@ -122,6 +123,20 @@ describe('CommandHandler', () => {
       expect(respond).toHaveBeenCalledWith(
         expect.objectContaining({ text: expect.stringContaining('권한') }),
       );
+    });
+
+    it('should reject unauthorized channel', async () => {
+      mockSlackService.isAllowedChannel.mockReturnValue(false);
+      const respond = jest.fn();
+      const ack = jest.fn();
+
+      const fn = registeredCommands.get('/claude')!;
+      await fn({ command: { user_id: 'U123', text: 'test', channel_id: 'C_BAD' }, ack, respond });
+
+      expect(respond).toHaveBeenCalledWith(
+        expect.objectContaining({ text: expect.stringContaining('채널') }),
+      );
+      expect(mockExecutorService.submitJob).not.toHaveBeenCalled();
     });
 
     it('should show usage for empty prompt', async () => {

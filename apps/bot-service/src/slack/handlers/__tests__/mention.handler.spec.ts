@@ -25,6 +25,7 @@ describe('MentionHandler', () => {
         }),
       }),
       isAllowedUser: jest.fn().mockReturnValue(true),
+      isAllowedChannel: jest.fn().mockReturnValue(true),
       getChannelId: jest.fn().mockReturnValue('C123'),
       postMessage: jest.fn().mockResolvedValue({ ts: '456' }),
     };
@@ -249,6 +250,22 @@ describe('MentionHandler', () => {
       await handler.handleMention({
         user: 'UBAD',
         channel: 'C123',
+        text: '<@BOTID> stop',
+        thread_ts: 'ts-123',
+      });
+
+      expect(mockExecutorService.stopJobByThreadTs).not.toHaveBeenCalled();
+      expect(mockSlackService.postMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('unauthorized channel', () => {
+    it('should silently ignore unauthorized channels', async () => {
+      mockSlackService.isAllowedChannel.mockReturnValue(false);
+
+      await handler.handleMention({
+        user: 'U123',
+        channel: 'C_BAD',
         text: '<@BOTID> stop',
         thread_ts: 'ts-123',
       });

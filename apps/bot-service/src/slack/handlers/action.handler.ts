@@ -40,8 +40,13 @@ export class ActionHandler implements OnModuleInit {
           return;
         }
 
-        const { action: actionType, sessionId, questionId } = parsed;
         const channelId = (body as any).channel?.id;
+        if (channelId && !this.slackService.isAllowedChannel(channelId)) {
+          this.logger.warn(`Unauthorized channel: ${channelId}`);
+          return;
+        }
+
+        const { action: actionType, sessionId, questionId } = parsed;
         const messageTs = (body as any).message?.ts;
 
         if (actionType === 'custom_reply') {

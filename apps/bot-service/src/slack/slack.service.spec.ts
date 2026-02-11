@@ -117,6 +117,30 @@ describe('SlackService', () => {
     });
   });
 
+  describe('isAllowedChannel', () => {
+    it('should allow all channels when allowedChannelIds is empty', () => {
+      expect(service.isAllowedChannel('C_ANY')).toBe(true);
+      expect(service.isAllowedChannel('C_OTHER')).toBe(true);
+    });
+
+    it('should allow matching channel when list is set', () => {
+      const restrictedService = new SlackService(slackCfg as any, {
+        ...secCfg,
+        allowedChannelIds: ['C12345', 'C67890'],
+      } as any);
+      expect(restrictedService.isAllowedChannel('C12345')).toBe(true);
+      expect(restrictedService.isAllowedChannel('C67890')).toBe(true);
+    });
+
+    it('should reject non-matching channel when list is set', () => {
+      const restrictedService = new SlackService(slackCfg as any, {
+        ...secCfg,
+        allowedChannelIds: ['C12345'],
+      } as any);
+      expect(restrictedService.isAllowedChannel('C_OTHER')).toBe(false);
+    });
+  });
+
   describe('getChannelId', () => {
     it('should return configured channel ID', () => {
       expect(service.getChannelId()).toBe('C12345');

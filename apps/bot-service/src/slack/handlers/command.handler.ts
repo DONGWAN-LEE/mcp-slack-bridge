@@ -33,26 +33,46 @@ export class CommandHandler implements OnModuleInit {
 
     app.command('/claude', async ({ command, ack, respond }) => {
       await ack();
+      if (!this.slackService.isAllowedChannel(command.channel_id)) {
+        await respond({ text: ':no_entry: 이 채널에서는 사용할 수 없습니다.', response_type: 'ephemeral' });
+        return;
+      }
       await this.handleClaude(command, respond);
     });
 
     app.command('/claude-sessions', async ({ command, ack, respond }) => {
       await ack();
+      if (!this.slackService.isAllowedChannel(command.channel_id)) {
+        await respond({ text: ':no_entry: 이 채널에서는 사용할 수 없습니다.', response_type: 'ephemeral' });
+        return;
+      }
       await this.handleSessions(command, respond);
     });
 
     app.command('/claude-inject', async ({ command, ack, respond }) => {
       await ack();
+      if (!this.slackService.isAllowedChannel(command.channel_id)) {
+        await respond({ text: ':no_entry: 이 채널에서는 사용할 수 없습니다.', response_type: 'ephemeral' });
+        return;
+      }
       await this.handleInject(command, respond);
     });
 
     app.command('/claude-status', async ({ command, ack, respond }) => {
       await ack();
+      if (!this.slackService.isAllowedChannel(command.channel_id)) {
+        await respond({ text: ':no_entry: 이 채널에서는 사용할 수 없습니다.', response_type: 'ephemeral' });
+        return;
+      }
       await this.handleStatus(command, respond);
     });
 
     app.command('/claude-cancel', async ({ command, ack, respond }) => {
       await ack();
+      if (!this.slackService.isAllowedChannel(command.channel_id)) {
+        await respond({ text: ':no_entry: 이 채널에서는 사용할 수 없습니다.', response_type: 'ephemeral' });
+        return;
+      }
       await this.handleCancel(command, respond);
     });
 
@@ -380,7 +400,8 @@ export class CommandHandler implements OnModuleInit {
       return readdirSync(dirPath, { withFileTypes: true })
         .filter((d) => d.isDirectory())
         .map((d) => d.name);
-    } catch {
+    } catch (err) {
+      this.logger.debug(`listDirectories failed for ${dirPath}: ${(err as Error).message}`);
       return [];
     }
   }

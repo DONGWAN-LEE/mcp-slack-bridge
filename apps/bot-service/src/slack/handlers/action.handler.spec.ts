@@ -24,6 +24,7 @@ describe('ActionHandler', () => {
         }),
       }),
       isAllowedUser: jest.fn().mockReturnValue(true),
+      isAllowedChannel: jest.fn().mockReturnValue(true),
       getChannelId: jest.fn().mockReturnValue('C12345'),
       postMessage: jest.fn().mockResolvedValue({ ts: '111.222' }),
       updateMessage: jest.fn().mockResolvedValue(undefined),
@@ -102,6 +103,17 @@ describe('ActionHandler', () => {
     slackService.isAllowedUser.mockReturnValue(false);
 
     const ctx = createCtx('approve:session-uuid:q-123', 'U999');
+    await registeredHandler(ctx);
+
+    expect(ctx.ack).toHaveBeenCalled();
+    expect(fileUtils.atomicWriteJson).not.toHaveBeenCalled();
+    expect(slackService.updateMessage).not.toHaveBeenCalled();
+  });
+
+  it('should reject unauthorized channels', async () => {
+    slackService.isAllowedChannel.mockReturnValue(false);
+
+    const ctx = createCtx('approve:session-uuid:q-123');
     await registeredHandler(ctx);
 
     expect(ctx.ack).toHaveBeenCalled();

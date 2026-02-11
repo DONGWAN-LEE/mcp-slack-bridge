@@ -32,18 +32,22 @@ export function registerSlackWaitTool(
       const startTime = Date.now();
 
       while (Date.now() - startTime < timeout) {
-        const response = fileBridge.readResponse(sessionId, args.questionId);
-        if (response) {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: JSON.stringify({
-                answer: response.answer,
-                respondedBy: response.respondedBy,
-                timestamp: response.respondedAt,
-              }),
-            }],
-          };
+        try {
+          const response = fileBridge.readResponse(sessionId, args.questionId);
+          if (response) {
+            return {
+              content: [{
+                type: 'text' as const,
+                text: JSON.stringify({
+                  answer: response.answer,
+                  respondedBy: response.respondedBy,
+                  timestamp: response.respondedAt,
+                }),
+              }],
+            };
+          }
+        } catch (pollErr) {
+          console.error(`[slack_wait_response] Poll error: ${(pollErr as Error).message}`);
         }
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
       }
