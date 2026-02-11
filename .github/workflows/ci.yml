@@ -31,3 +31,8 @@ jobs:
 
       - name: Run tests
         run: npm test
+        env:
+          SLACK_BOT_TOKEN: xoxb-ci-dummy
+          SLACK_APP_TOKEN: xapp-ci-dummy
+          SLACK_CHANNEL_ID: C000000
+          ALLOWED_USER_IDS: U000000
