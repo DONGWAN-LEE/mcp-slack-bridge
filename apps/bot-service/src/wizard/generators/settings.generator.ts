@@ -1,7 +1,9 @@
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { SettingsLocalJson } from '../wizard.types';
-import { atomicWriteJson, readJsonFile, ensureDir } from '@app/shared';
+// Direct sub-path import to avoid barrel export side-effect:
+// @app/shared re-exports SharedModule which triggers ConfigModule.forRoot() at import time.
+import { atomicWriteJson, readJsonFile, ensureDir } from '@app/shared/utils/file.utils';
 
 const DEFAULT_PERMISSIONS: string[] = [
   'Bash(git status:*)',

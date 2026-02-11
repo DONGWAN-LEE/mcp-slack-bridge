@@ -4,7 +4,7 @@ import {
   generateSettings,
   writeSettingsFile,
 } from '../generators/settings.generator';
-import { atomicWriteJson } from '@app/shared';
+import { atomicWriteJson } from '@app/shared/utils/file.utils';
 
 const TEST_DIR = join(__dirname, '.tmp-settings-test');
 
