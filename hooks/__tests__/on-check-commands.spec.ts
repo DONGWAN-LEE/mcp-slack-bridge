@@ -1,5 +1,5 @@
 import { join } from 'path';
-import { readdirSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { resolveSession } from '../utils/session-resolver';
 
 jest.mock('../utils/session-resolver', () => ({
@@ -7,12 +7,16 @@ jest.mock('../utils/session-resolver', () => ({
 }));
 
 jest.mock('fs', () => ({
+  existsSync: jest.fn(),
   readdirSync: jest.fn(),
   readFileSync: jest.fn(),
   writeFileSync: jest.fn(),
 }));
 
 const COOLDOWN_MS = 10_000;
+const RE_ENTRY_MSG =
+  '[Slack 명령 처리 완료] ' +
+  'slack_check_commands 도구를 blocking=true로 호출하여 다음 Slack 명령을 대기해주세요.';
 const SKIP_TOOLS = [
   'slack_check_commands',
   // slack_command_result is intentionally NOT skipped
@@ -32,6 +36,8 @@ describe('on-check-commands logic', () => {
       sessionId: 'test-session',
       sessionDir: mockSessionDir,
     });
+    // Default: marker exists (not first run)
+    (existsSync as jest.Mock).mockReturnValue(true);
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
   });
 
@@ -44,8 +50,9 @@ describe('on-check-commands logic', () => {
     hasSession?: boolean;
     pendingFiles?: Array<{ name: string; status: string }>;
     lastNotifyTs?: number;
+    isFirstRun?: boolean;
   } = {}): void {
-    const { toolName, hasSession = true, pendingFiles = [], lastNotifyTs } = options;
+    const { toolName, hasSession = true, pendingFiles = [], lastNotifyTs, isFirstRun = false } = options;
 
     // Skip slack-related tools
     if (toolName && SKIP_TOOLS.some((t) => toolName.includes(t))) {
@@ -58,6 +65,21 @@ describe('on-check-commands logic', () => {
 
     const session = resolveSession('./state');
     if (!session) return;
+
+    // Session-first-run: one-time notification to enter wait loop
+    const notifiedMarker = join(session.sessionDir, '.wait-loop-notified');
+    (existsSync as jest.Mock).mockImplementation((path: string) => {
+      if (path === notifiedMarker) return !isFirstRun;
+      return false;
+    });
+    if (!(existsSync as jest.Mock)(notifiedMarker)) {
+      (writeFileSync as jest.Mock)(notifiedMarker, String(Date.now()));
+      console.log(
+        '[Slack 명령 대기 시작] ' +
+          'slack_check_commands 도구를 blocking=true로 호출하여 Slack 명령 대기를 시작해주세요.',
+      );
+      return;
+    }
 
     const isCommandResult = toolName?.includes('slack_command_result') ?? false;
 
@@ -120,27 +142,21 @@ describe('on-check-commands logic', () => {
         }
       }
 
-      (writeFileSync as jest.Mock)(markerPath, String(Date.now()));
-
       if (pendingCount > 0) {
+        (writeFileSync as jest.Mock)(markerPath, String(Date.now()));
         console.log(
           `[Slack 명령 ${pendingCount}건 대기 중] ` +
             `slack_check_commands 도구를 호출하여 Slack에서 전달된 명령을 확인하고 실행해주세요.`,
         );
       } else if (isCommandResult) {
-        console.log(
-          '[Slack 명령 처리 완료] ' +
-            'slack_check_commands 도구를 blocking=true로 호출하여 다음 Slack 명령을 대기해주세요.',
-        );
+        (writeFileSync as jest.Mock)(markerPath, String(Date.now()));
+        console.log(RE_ENTRY_MSG);
       }
     } catch {
       // commands directory doesn't exist
       if (isCommandResult) {
         (writeFileSync as jest.Mock)(markerPath, String(Date.now()));
-        console.log(
-          '[Slack 명령 처리 완료] ' +
-            'slack_check_commands 도구를 blocking=true로 호출하여 다음 Slack 명령을 대기해주세요.',
-        );
+        console.log(RE_ENTRY_MSG);
       }
     }
   }
@@ -311,5 +327,45 @@ describe('on-check-commands logic', () => {
     expect(consoleLogSpy).toHaveBeenCalledWith(
       expect.stringContaining('Slack 명령 처리 완료'),
     );
+  });
+
+  it('should output initial notification on session first run', () => {
+    simulateHook({ isFirstRun: true });
+
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Slack 명령 대기 시작'),
+    );
+    expect(writeFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('.wait-loop-notified'),
+      expect.any(String),
+    );
+  });
+
+  it('should proceed to normal logic after initial notification', () => {
+    simulateHook({
+      isFirstRun: false,
+      pendingFiles: [
+        { name: 'cmd-1.json', status: 'pending' },
+        { name: 'cmd-2.json', status: 'pending' },
+      ],
+    });
+
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Slack 명령 2건 대기 중'),
+    );
+    expect(consoleLogSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('Slack 명령 대기 시작'),
+    );
+  });
+
+  it('should skip initial notification for slack_check_commands tool', () => {
+    simulateHook({
+      toolName: 'mcp__slack-bridge__slack_check_commands',
+      isFirstRun: true,
+    });
+
+    // SKIP_TOOLS prevents reaching the initial notification logic
+    expect(resolveSession).not.toHaveBeenCalled();
+    expect(consoleLogSpy).not.toHaveBeenCalled();
   });
 });

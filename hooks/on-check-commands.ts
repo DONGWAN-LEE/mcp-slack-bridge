@@ -1,12 +1,15 @@
 import './utils/env-loader';
 import { join } from 'path';
-import { readdirSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { readHookInput } from './utils/stdin-reader';
 import { resolveSession } from './utils/session-resolver';
 import { STATE_DIR } from './utils/env-loader';
 import { CommandFile } from '../libs/shared/src/types/command.types';
 
 const COOLDOWN_MS = 10_000; // 10s cooldown
+const RE_ENTRY_MSG =
+  '[Slack 명령 처리 완료] ' +
+  'slack_check_commands 도구를 blocking=true로 호출하여 다음 Slack 명령을 대기해주세요.';
 const SKIP_TOOLS = [
   'slack_check_commands',
   // slack_command_result is intentionally NOT skipped — triggers re-entry into wait loop
@@ -25,6 +28,17 @@ async function main(): Promise<void> {
 
   const session = resolveSession(STATE_DIR);
   if (!session) return;
+
+  // Session-first-run: one-time notification to enter wait loop
+  const notifiedMarker = join(session.sessionDir, '.wait-loop-notified');
+  if (!existsSync(notifiedMarker)) {
+    writeFileSync(notifiedMarker, String(Date.now()));
+    console.log(
+      '[Slack 명령 대기 시작] ' +
+        'slack_check_commands 도구를 blocking=true로 호출하여 Slack 명령 대기를 시작해주세요.',
+    );
+    return;
+  }
 
   const isCommandResult = input.tool_name?.includes('slack_command_result') ?? false;
 
@@ -53,27 +67,21 @@ async function main(): Promise<void> {
       }
     }
 
-    writeFileSync(markerPath, String(Date.now()));
-
     if (pendingCount > 0) {
+      writeFileSync(markerPath, String(Date.now()));
       console.log(
         `[Slack 명령 ${pendingCount}건 대기 중] ` +
           `slack_check_commands 도구를 호출하여 Slack에서 전달된 명령을 확인하고 실행해주세요.`,
       );
     } else if (isCommandResult) {
-      console.log(
-        '[Slack 명령 처리 완료] ' +
-          'slack_check_commands 도구를 blocking=true로 호출하여 다음 Slack 명령을 대기해주세요.',
-      );
+      writeFileSync(markerPath, String(Date.now()));
+      console.log(RE_ENTRY_MSG);
     }
   } catch {
     // commands directory doesn't exist
     if (isCommandResult) {
       writeFileSync(markerPath, String(Date.now()));
-      console.log(
-        '[Slack 명령 처리 완료] ' +
-          'slack_check_commands 도구를 blocking=true로 호출하여 다음 Slack 명령을 대기해주세요.',
-      );
+      console.log(RE_ENTRY_MSG);
     }
   }
 }
