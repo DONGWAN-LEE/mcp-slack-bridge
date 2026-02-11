@@ -102,8 +102,17 @@ async function bootstrap() {
 
   const shutdown = async () => {
     logger.log('Shutting down...');
-    await app.close();
-    process.exit(0);
+    const closePromise = app.close();
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Shutdown timeout')), 10000),
+    );
+    try {
+      await Promise.race([closePromise, timeoutPromise]);
+      process.exit(0);
+    } catch (err) {
+      logger.error(`Shutdown error: ${(err as Error).message}`);
+      process.exit(1);
+    }
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
