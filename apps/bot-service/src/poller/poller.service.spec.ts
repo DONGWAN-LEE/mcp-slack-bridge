@@ -33,7 +33,7 @@ describe('PollerService', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     jest.useFakeTimers();
 
     slackService = {
@@ -64,15 +64,25 @@ describe('PollerService', () => {
     jest.useRealTimers();
   });
 
-  it('should start polling on init with setInterval', () => {
+  it('should start polling on init with setInterval', async () => {
+    mockReaddirSync.mockImplementation((dir: string, opts?: any) => {
+      if (opts?.withFileTypes) return [];
+      return [];
+    });
+
     const spy = jest.spyOn(global, 'setInterval');
-    service.onModuleInit();
+    await service.onModuleInit();
     expect(spy).toHaveBeenCalledWith(expect.any(Function), 2000);
     spy.mockRestore();
   });
 
-  it('should clear interval on destroy', () => {
-    service.onModuleInit();
+  it('should clear interval on destroy', async () => {
+    mockReaddirSync.mockImplementation((dir: string, opts?: any) => {
+      if (opts?.withFileTypes) return [];
+      return [];
+    });
+
+    await service.onModuleInit();
     const spy = jest.spyOn(global, 'clearInterval');
     service.onModuleDestroy();
     expect(spy).toHaveBeenCalled();
@@ -80,6 +90,9 @@ describe('PollerService', () => {
   });
 
   it('should detect pending question and post to Slack', async () => {
+    // Init with no sessions so announceActiveSessions is a no-op
+    await service.onModuleInit();
+
     mockReaddirSync.mockImplementation((dir: string, opts?: any) => {
       if (dir.endsWith('sessions')) {
         if (opts?.withFileTypes) {
@@ -119,7 +132,6 @@ describe('PollerService', () => {
 
     mockStatSync.mockReturnValue({ mtimeMs: Date.now() });
 
-    service.onModuleInit();
     jest.advanceTimersByTime(2000);
     await Promise.resolve();
     await Promise.resolve();
@@ -134,6 +146,8 @@ describe('PollerService', () => {
   });
 
   it('should create session thread if slackThreadTs is missing', async () => {
+    await service.onModuleInit();
+
     mockReaddirSync.mockImplementation((dir: string, opts?: any) => {
       if (dir.endsWith('sessions')) {
         if (opts?.withFileTypes) {
@@ -177,7 +191,6 @@ describe('PollerService', () => {
 
     mockStatSync.mockReturnValue({ mtimeMs: Date.now() });
 
-    service.onModuleInit();
     jest.advanceTimersByTime(2000);
     await Promise.resolve();
     await Promise.resolve();
@@ -192,6 +205,8 @@ describe('PollerService', () => {
   });
 
   it('should not re-send known questions (dedup)', async () => {
+    await service.onModuleInit();
+
     mockReaddirSync.mockImplementation((dir: string, opts?: any) => {
       if (dir.endsWith('sessions')) {
         if (opts?.withFileTypes) {
@@ -231,8 +246,6 @@ describe('PollerService', () => {
 
     mockStatSync.mockReturnValue({ mtimeMs: Date.now() });
 
-    service.onModuleInit();
-
     // First poll
     jest.advanceTimersByTime(2000);
     await Promise.resolve();
@@ -249,7 +262,6 @@ describe('PollerService', () => {
   });
 
   it('should delay question notification when notificationDelaySec > 0', async () => {
-    // Create a new service with 60 second delay
     const delayService = new PollerService(
       slackService,
       sessionThreadService,
@@ -257,6 +269,9 @@ describe('PollerService', () => {
       { intervalMs: 2000, notificationDelaySec: 60 } as any,
       sessionCfg as any,
     );
+
+    // Init with no sessions so announceActiveSessions is a no-op
+    await delayService.onModuleInit();
 
     mockReaddirSync.mockImplementation((dir: string, opts?: any) => {
       if (dir.endsWith('sessions')) {
@@ -298,8 +313,6 @@ describe('PollerService', () => {
 
     mockStatSync.mockReturnValue({ mtimeMs: Date.now() });
 
-    delayService.onModuleInit();
-
     // First poll at t=2s — question is only ~2s old, delay is 60s → should NOT send
     await jest.advanceTimersByTimeAsync(2000);
 
@@ -321,6 +334,8 @@ describe('PollerService', () => {
       { intervalMs: 2000, notificationDelaySec: 60 } as any,
       sessionCfg as any,
     );
+
+    await delayService.onModuleInit();
 
     mockReaddirSync.mockImplementation((dir: string, opts?: any) => {
       if (dir.endsWith('sessions')) {
@@ -361,8 +376,6 @@ describe('PollerService', () => {
 
     mockStatSync.mockReturnValue({ mtimeMs: Date.now() });
 
-    delayService.onModuleInit();
-
     // First poll — within delay, not sent
     await jest.advanceTimersByTimeAsync(2000);
 
@@ -381,6 +394,8 @@ describe('PollerService', () => {
   });
 
   it('should terminate stale sessions', async () => {
+    await service.onModuleInit();
+
     mockReaddirSync.mockImplementation((dir: string, opts?: any) => {
       if (dir.endsWith('sessions')) {
         if (opts?.withFileTypes) {
@@ -398,7 +413,7 @@ describe('PollerService', () => {
       environment: { terminal: 'vscode', displayName: 'VS Code' },
       projectName: 'test',
       projectPath: '/test',
-      slackThreadTs: '100.200', // Already has thread — skip ensureSessionThread
+      slackThreadTs: '100.200',
     };
 
     (fileUtils.readJsonFile as jest.Mock).mockImplementation((path: string) => {
@@ -410,12 +425,122 @@ describe('PollerService', () => {
       mtimeMs: Date.now() - 400000,
     });
 
-    service.onModuleInit();
     await jest.advanceTimersByTimeAsync(2000);
 
     expect(fileUtils.atomicWriteJson).toHaveBeenCalledWith(
       expect.stringContaining('meta.json'),
       expect.objectContaining({ status: 'terminated' }),
     );
+  });
+
+  describe('announceActiveSessions', () => {
+    it('should announce active sessions and clear slackThreadTs on startup', async () => {
+      mockReaddirSync.mockImplementation((dir: string, opts?: any) => {
+        if (dir.endsWith('sessions') && opts?.withFileTypes) {
+          return [{ name: 'sess-active', isDirectory: () => true }];
+        }
+        return [];
+      });
+
+      const meta = {
+        sessionId: 'sess-active',
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        environment: { terminal: 'vscode', displayName: 'VS Code' },
+        projectName: 'test',
+        projectPath: '/test',
+        slackThreadTs: '999.888',
+      };
+
+      (fileUtils.readJsonFile as jest.Mock).mockImplementation((path: string) => {
+        if (path.includes('meta.json')) return { ...meta };
+        return null;
+      });
+
+      await service.onModuleInit();
+
+      // slackThreadTs should be cleared via atomicWriteJson
+      const writtenMeta = (fileUtils.atomicWriteJson as jest.Mock).mock.calls[0][1];
+      expect(writtenMeta).not.toHaveProperty('slackThreadTs');
+      expect(writtenMeta.sessionId).toBe('sess-active');
+
+      // Announcement message should be posted
+      expect(slackService.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: 'C12345',
+          text: expect.stringContaining('활성'),
+        }),
+      );
+    });
+
+    it('should not post announcement when no active sessions exist', async () => {
+      mockReaddirSync.mockImplementation((dir: string, opts?: any) => {
+        if (opts?.withFileTypes) return [];
+        return [];
+      });
+
+      await service.onModuleInit();
+
+      expect(slackService.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('should not crash if Slack API fails during announcement', async () => {
+      mockReaddirSync.mockImplementation((dir: string, opts?: any) => {
+        if (dir.endsWith('sessions') && opts?.withFileTypes) {
+          return [{ name: 'sess-err', isDirectory: () => true }];
+        }
+        return [];
+      });
+
+      const meta = {
+        sessionId: 'sess-err',
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        environment: { terminal: 'vscode', displayName: 'VS Code' },
+        projectName: 'test',
+        projectPath: '/test',
+      };
+
+      (fileUtils.readJsonFile as jest.Mock).mockImplementation((path: string) => {
+        if (path.includes('meta.json')) return { ...meta };
+        return null;
+      });
+
+      slackService.postMessage.mockRejectedValueOnce(new Error('Slack API error'));
+
+      // Should not throw
+      await expect(service.onModuleInit()).resolves.not.toThrow();
+    });
+
+    it('should not rewrite meta.json when session has no slackThreadTs', async () => {
+      mockReaddirSync.mockImplementation((dir: string, opts?: any) => {
+        if (dir.endsWith('sessions') && opts?.withFileTypes) {
+          return [{ name: 'sess-no-ts', isDirectory: () => true }];
+        }
+        return [];
+      });
+
+      const meta = {
+        sessionId: 'sess-no-ts',
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        environment: { terminal: 'vscode', displayName: 'VS Code' },
+        projectName: 'test',
+        projectPath: '/test',
+      };
+
+      (fileUtils.readJsonFile as jest.Mock).mockImplementation((path: string) => {
+        if (path.includes('meta.json')) return { ...meta };
+        return null;
+      });
+
+      await service.onModuleInit();
+
+      // Announcement should be posted (1 active session)
+      expect(slackService.postMessage).toHaveBeenCalledTimes(1);
+
+      // atomicWriteJson should NOT have been called (no slackThreadTs to clear)
+      expect(fileUtils.atomicWriteJson).not.toHaveBeenCalled();
+    });
   });
 });
