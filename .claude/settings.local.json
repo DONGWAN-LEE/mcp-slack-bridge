@@ -51,7 +51,17 @@
       "mcp__slack-bridge__slack_ask",
       "Bash(ls:*)",
       "Bash(gh pr edit:*)",
-      "Bash(npm run build:hooks:*)"
+      "Bash(npm run build:hooks:*)",
+      "mcp__filesystem__search_files",
+      "Bash(npm run lint:*)",
+      "Bash(npm test:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)",
+      "Bash(cd:*)",
+      "Bash(git stash:*)",
+      "Bash(git restore:*)"
     ]
   },
   "hooks": {
@@ -73,6 +83,14 @@
           {
             "type": "command",
             "command": "node dist/hooks/hooks/on-question-answered.js"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node dist/hooks/hooks/on-check-commands.js"
           }
         ]
       }
