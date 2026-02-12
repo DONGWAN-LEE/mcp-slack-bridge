@@ -29,7 +29,11 @@ export function buildQuestionMessage(
     });
   }
 
+  const actionId = (action: string) =>
+    `${action}:${meta.sessionId}:${question.questionId}`;
+
   if (question.options && question.options.length > 0) {
+    // Show options as text list
     const optionText = question.options
       .map((opt, i) => `${i + 1}. ${opt}`)
       .join('\n');
@@ -40,33 +44,51 @@ export function buildQuestionMessage(
         text: `*선택지:*\n${optionText}`,
       },
     });
+
+    // Add individual option buttons (max 24 to reserve 1 slot for custom_reply)
+    const MAX_OPTION_BUTTONS = 24;
+    const optionButtons = question.options.slice(0, MAX_OPTION_BUTTONS).map((opt, i) => ({
+      type: 'button' as const,
+      text: { type: 'plain_text' as const, text: truncateLabel(opt), emoji: true },
+      action_id: actionId(`option_${i}`),
+    }));
+
+    blocks.push({
+      type: 'actions',
+      elements: [
+        ...optionButtons,
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: '💬 직접 입력', emoji: true },
+          action_id: actionId('custom_reply'),
+        },
+      ],
+    });
+  } else {
+    // No options: show default approve/reject/custom_reply buttons
+    blocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: '✅ 승인', emoji: true },
+          action_id: actionId('approve'),
+          style: 'primary',
+        },
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: '❌ 거절', emoji: true },
+          action_id: actionId('reject'),
+          style: 'danger',
+        },
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: '💬 답변 입력', emoji: true },
+          action_id: actionId('custom_reply'),
+        },
+      ],
+    });
   }
-
-  const actionId = (action: string) =>
-    `${action}:${meta.sessionId}:${question.questionId}`;
-
-  blocks.push({
-    type: 'actions',
-    elements: [
-      {
-        type: 'button',
-        text: { type: 'plain_text', text: '✅ 승인', emoji: true },
-        action_id: actionId('approve'),
-        style: 'primary',
-      },
-      {
-        type: 'button',
-        text: { type: 'plain_text', text: '❌ 거절', emoji: true },
-        action_id: actionId('reject'),
-        style: 'danger',
-      },
-      {
-        type: 'button',
-        text: { type: 'plain_text', text: '💬 답변 입력', emoji: true },
-        action_id: actionId('custom_reply'),
-      },
-    ],
-  });
 
   return {
     channel: channelId,
@@ -74,4 +96,9 @@ export function buildQuestionMessage(
     text,
     blocks,
   };
+}
+
+/** Slack button text max is 75 chars */
+function truncateLabel(label: string): string {
+  return label.length > 72 ? label.slice(0, 69) + '...' : label;
 }
