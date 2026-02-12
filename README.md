@@ -611,6 +611,8 @@ Stop Hook이 없으면 Claude Code가 작업 완료 후 즉시 멈춰버립니�
 3. Claude Code에 "대기루프 진입해"라고 입력하여 Slack 대기 상태 진입 확인
 4. Slack 세션 쓰레드에서 `@claude 테스트` 멘션으로 명령 전달 확인
 
+> 복사 가능한 전체 설정 템플릿과 상세 문제 해결은 [외부 프로젝트 설정 퀵 스타트 가이드](./claudedocs/external-project-setup-guide.md)를 참고하세요.
+
 ## Hooks 시스템
 
 Claude Code의 Hook 이벤트에 연결하여 Slack 연동을 자동화합니다.
