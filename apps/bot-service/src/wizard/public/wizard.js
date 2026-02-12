@@ -286,7 +286,7 @@ function getStep6() {
       <div class="form-group">
         <label for="notificationDelaySeconds">알림 지연 시간 (초)</label>
         <div class="help-text">로컬에서 먼저 응답하면 Slack 알림을 보내지 않습니다.</div>
-        <input type="number" id="notificationDelaySeconds" value="${c.notificationDelaySeconds ?? d.notificationDelaySeconds ?? 300}" min="0">
+        <input type="number" id="notificationDelaySeconds" value="${c.notificationDelaySeconds ?? d.notificationDelaySeconds ?? 0}" min="0">
       </div>
       <div class="form-group">
         <label for="pollIntervalMs">폴링 간격 (ms)</label>

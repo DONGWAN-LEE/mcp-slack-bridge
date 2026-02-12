@@ -75,7 +75,7 @@ export const WIZARD_DEFAULTS: Omit<
   sessionTimeoutMs: 3600000,
   heartbeatIntervalMs: 30000,
   staleSessionMs: 300000,
-  notificationDelaySeconds: 300,
+  notificationDelaySeconds: 0,
   pollIntervalMs: 2000,
   maxConcurrentExecutions: 1,
   maxQueueSize: 5,
