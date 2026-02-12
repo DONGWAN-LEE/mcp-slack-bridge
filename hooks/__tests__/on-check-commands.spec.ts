@@ -25,6 +25,15 @@ const SKIP_TOOLS = [
   'slack_wait_response',
 ];
 
+function resetStopBlockCount(sessionDir: string): void {
+  const countPath = join(sessionDir, '.stop-block-count');
+  try {
+    (writeFileSync as jest.Mock)(countPath, '0');
+  } catch {
+    // ignore
+  }
+}
+
 describe('on-check-commands logic', () => {
   const mockSessionDir = join('./state', 'sessions', 'test-session');
   const mockResolveSession = resolveSession as jest.MockedFunction<typeof resolveSession>;
@@ -54,7 +63,19 @@ describe('on-check-commands logic', () => {
   } = {}): void {
     const { toolName, hasSession = true, pendingFiles = [], lastNotifyTs, isFirstRun = false } = options;
 
-    // Skip slack-related tools
+    // Reset stop-block counter when slack_check_commands is called
+    if (toolName?.includes('slack_check_commands')) {
+      if (!hasSession) {
+        mockResolveSession.mockReturnValue(null);
+      }
+      const session = resolveSession('./state');
+      if (session) {
+        resetStopBlockCount(session.sessionDir);
+      }
+      return;
+    }
+
+    // Skip other slack-related tools to prevent infinite loops
     if (toolName && SKIP_TOOLS.some((t) => toolName.includes(t))) {
       return;
     }
@@ -82,6 +103,11 @@ describe('on-check-commands logic', () => {
     }
 
     const isCommandResult = toolName?.includes('slack_command_result') ?? false;
+
+    // Reset stop-block counter on slack_command_result
+    if (isCommandResult) {
+      resetStopBlockCount(session.sessionDir);
+    }
 
     // Cooldown check — slack_command_result bypasses cooldown
     const markerPath = join(session.sessionDir, '.command-notify-ts');
@@ -189,10 +215,14 @@ describe('on-check-commands logic', () => {
     expect(consoleLogSpy).not.toHaveBeenCalled();
   });
 
-  it('should skip slack_* tool executions', () => {
+  it('should reset stop-block-count and return early for slack_check_commands', () => {
     simulateHook({ toolName: 'mcp__slack-bridge__slack_check_commands' });
 
-    expect(resolveSession).not.toHaveBeenCalled();
+    expect(resolveSession).toHaveBeenCalled();
+    expect(writeFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('.stop-block-count'),
+      '0',
+    );
     expect(consoleLogSpy).not.toHaveBeenCalled();
   });
 
@@ -358,14 +388,31 @@ describe('on-check-commands logic', () => {
     );
   });
 
-  it('should skip initial notification for slack_check_commands tool', () => {
+  it('should reset stop-block-count for slack_check_commands even on first run', () => {
     simulateHook({
       toolName: 'mcp__slack-bridge__slack_check_commands',
       isFirstRun: true,
     });
 
-    // SKIP_TOOLS prevents reaching the initial notification logic
-    expect(resolveSession).not.toHaveBeenCalled();
+    // slack_check_commands now resets counter and returns early
+    expect(resolveSession).toHaveBeenCalled();
+    expect(writeFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('.stop-block-count'),
+      '0',
+    );
     expect(consoleLogSpy).not.toHaveBeenCalled();
+  });
+
+  it('should reset stop-block-count on slack_command_result', () => {
+    simulateHook({
+      toolName: 'mcp__slack-bridge__slack_command_result',
+      pendingFiles: [{ name: 'cmd-1.json', status: 'completed' }],
+    });
+
+    // slack_command_result resets the stop-block-count
+    expect(writeFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('.stop-block-count'),
+      '0',
+    );
   });
 });

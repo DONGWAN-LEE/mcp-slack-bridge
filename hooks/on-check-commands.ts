@@ -18,10 +18,29 @@ const SKIP_TOOLS = [
   'slack_wait_response',
 ];
 
+function resetStopBlockCount(sessionDir: string): void {
+  const countPath = join(sessionDir, '.stop-block-count');
+  try {
+    writeFileSync(countPath, '0');
+  } catch {
+    // ignore
+  }
+}
+
 async function main(): Promise<void> {
   const input = await readHookInput();
 
-  // Skip slack-related tools to prevent infinite loops
+  // Reset stop-block counter when slack_check_commands is called
+  // This proves the wait loop is active, so the Stop hook circuit breaker resets
+  if (input.tool_name?.includes('slack_check_commands')) {
+    const session = resolveSession(STATE_DIR);
+    if (session) {
+      resetStopBlockCount(session.sessionDir);
+    }
+    return;
+  }
+
+  // Skip other slack-related tools to prevent infinite loops
   if (input.tool_name && SKIP_TOOLS.some((t) => input.tool_name!.includes(t))) {
     return;
   }
@@ -41,6 +60,11 @@ async function main(): Promise<void> {
   }
 
   const isCommandResult = input.tool_name?.includes('slack_command_result') ?? false;
+
+  // Reset stop-block counter on slack_command_result (proves active processing)
+  if (isCommandResult) {
+    resetStopBlockCount(session.sessionDir);
+  }
 
   // Cooldown check — slack_command_result bypasses cooldown
   const markerPath = join(session.sessionDir, '.command-notify-ts');

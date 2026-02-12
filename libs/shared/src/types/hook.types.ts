@@ -4,6 +4,12 @@ export interface HookInput {
   tool_input?: Record<string, unknown>;
   tool_output?: Record<string, unknown>;
   message?: string;
+  stop_hook_active?: boolean;
+}
+
+export interface StopHookDecision {
+  decision: 'block';
+  reason: string;
 }
 
 export interface CurrentSessionFile {
