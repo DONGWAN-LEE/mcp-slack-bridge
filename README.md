@@ -490,6 +490,127 @@ npm run build:all
 
 > 자세한 설정과 문제 해결은 [Slack 대기 루프 가이드](./claudedocs/slack-wait-loop-guide.md)를 참고하세요.
 
+## 다른 프로젝트에서 Slack 컨트롤 사용하기
+
+mcp-slack-bridge를 통해 **어떤 프로젝트에서든** Claude Code를 Slack으로 원격 제어할 수 있습니다. 다음 **4가지 요구사항**이 모두 충족되어야 합니다.
+
+### 필수 요구사항 체크리스트
+
+| # | 요구사항 | 설명 |
+|---|---------|------|
+| 1 | **Bot 서비스 실행** | mcp-slack-bridge의 Bot 서비스가 상시 실행 중이어야 합니다 |
+| 2 | **MCP 서버 등록** | Claude Code에 slack-bridge MCP 서버가 등록되어야 합니다 |
+| 3 | **CLAUDE.md 대기 루프 지시** | 프로젝트에 대기 루프 진입 규칙이 명시되어야 합니다 |
+| 4 | **Hook 스크립트 등록** | Stop Hook과 PostToolUse Hook이 설정되어야 합니다 |
+
+> **하나라도 빠지면** Slack 컨트롤이 정상 작동하지 않습니다.
+
+### 1. Bot 서비스 실행
+
+Bot 서비스는 Slack과 파일 시스템 간의 브릿지 역할을 합니다. **한 번만 실행**하면 모든 프로젝트에서 공유합니다.
+
+```bash
+# mcp-slack-bridge 디렉토리에서
+npm run start:bot        # 또는 pm2: npx pm2 start ecosystem.config.js
+```
+
+### 2. MCP 서버 등록
+
+Claude Code가 `slack_check_commands`, `slack_command_result` 등의 MCP 도구를 사용하려면 MCP 서버가 등록되어야 합니다.
+
+**방법 A: 글로벌 등록** (모든 프로젝트에서 사용 — 권장)
+
+`~/.claude.json`에 추가:
+```json
+{
+  "mcpServers": {
+    "slack-bridge": {
+      "command": "node",
+      "args": ["/path/to/mcp-slack-bridge/dist/apps/mcp-server/main.js"],
+      "env": {
+        "STATE_DIR": "/path/to/mcp-slack-bridge/state"
+      }
+    }
+  }
+}
+```
+
+**방법 B: 프로젝트별 등록**
+
+해당 프로젝트의 `.claude/settings.local.json`에 추가:
+```json
+{
+  "mcpServers": {
+    "slack-bridge": {
+      "command": "node",
+      "args": ["/path/to/mcp-slack-bridge/dist/apps/mcp-server/main.js"],
+      "env": {
+        "STATE_DIR": "/path/to/mcp-slack-bridge/state"
+      }
+    }
+  }
+}
+```
+
+> **중요**: `args`와 `STATE_DIR`의 경로는 mcp-slack-bridge가 설치된 **절대 경로**로 변경하세요.
+
+### 3. CLAUDE.md 대기 루프 지시
+
+대상 프로젝트의 루트에 `CLAUDE.md` 파일을 생성하고 아래 내용을 추가합니다. 이 지시가 없으면 Claude Code가 작업 완료 후 Slack 명령 대기 상태로 진입하지 않습니다.
+
+```markdown
+## Slack 명령 대기 워크플로우
+
+이 프로젝트는 mcp-slack-bridge를 통해 Slack @mention 명령을 수신합니다.
+
+### 필수 규칙
+1. **작업 완료 후 대기 진입**: 현재 작업이 끝나면 `slack_check_commands`를 `blocking=true`로 호출하여 Slack 명령 대기 상태로 진입하세요.
+2. **명령 처리 후 재대기**: Slack 명령을 처리하고 `slack_command_result`로 결과를 보고한 후, 다시 `slack_check_commands(blocking=true)`를 호출하세요.
+3. **타임아웃 시 재호출**: `slack_check_commands`가 타임아웃으로 반환되면 즉시 다시 호출하여 대기를 계속하세요.
+```
+
+### 4. Hook 스크립트 등록
+
+Stop Hook이 없으면 Claude Code가 작업 완료 후 즉시 멈춰버립니다. 대상 프로젝트의 `.claude/settings.local.json`에 hooks를 추가합니다:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /path/to/mcp-slack-bridge/dist/hooks/hooks/on-check-commands.js"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /path/to/mcp-slack-bridge/dist/hooks/hooks/on-stop.js"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+> **중요**: `command`의 경로는 mcp-slack-bridge의 빌드된 Hook 파일 **절대 경로**로 변경하세요. 사전에 `npm run build:hooks`로 빌드해야 합니다.
+
+### 설정 확인
+
+모든 설정이 완료되었는지 확인하려면:
+
+1. Bot 서비스 실행 확인: `pm2 status` 또는 Bot 프로세스 확인
+2. Claude Code 시작 후 MCP 도구 목록에 `slack_check_commands`가 보이는지 확인
+3. Claude Code에 "대기루프 진입해"라고 입력하여 Slack 대기 상태 진입 확인
+4. Slack 세션 쓰레드에서 `@claude 테스트` 멘션으로 명령 전달 확인
+
 ## Hooks 시스템
 
 Claude Code의 Hook 이벤트에 연결하여 Slack 연동을 자동화합니다.
