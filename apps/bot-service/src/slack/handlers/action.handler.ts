@@ -23,7 +23,7 @@ export class ActionHandler implements OnModuleInit {
   onModuleInit(): void {
     const app = this.slackService.getApp();
 
-    app.action(/^(approve|reject|custom_reply):/, async ({ action, ack, body }) => {
+    app.action(/^(approve|reject|custom_reply|option_\d+):/, async ({ action, ack, body }) => {
       await ack();
 
       try {
@@ -66,7 +66,18 @@ export class ActionHandler implements OnModuleInit {
           return;
         }
 
-        const answer = actionType === 'approve' ? 'approved' : 'rejected';
+        let answer: string;
+        if (actionType === 'option_select') {
+          const question = this.readQuestion(sessionId, questionId);
+          if (!question) {
+            this.logger.warn(`Question file not found: session=${sessionId.slice(0, 8)} question=${questionId}`);
+          }
+          const optionIndex = parsed.optionIndex ?? 0;
+          answer = question?.options?.[optionIndex] ?? `option_${optionIndex}`;
+        } else {
+          answer = actionType === 'approve' ? 'approved' : 'rejected';
+        }
+
         this.writeResponse(sessionId, questionId, answer, userId);
 
         if (channelId && messageTs) {

@@ -13,7 +13,8 @@ export function registerSlackCheckCommandsTool(
 ): void {
   mcpServer.tool(
     'slack_check_commands',
-    'Slack에서 전달된 명령을 확인합니다. 블로킹 모드에서는 새 명령이 올 때까지 대기합니다.',
+    'Slack에서 전달된 명령을 확인합니다. 블로킹 모드에서는 새 명령이 올 때까지 대기합니다. ' +
+      '명령 처리 완료 후 반드시 blocking=true로 다시 호출하여 대기 상태를 유지하세요.',
     {
       blocking: z.boolean().optional().describe('블로킹 모드 (기본: true). false이면 즉시 반환'),
       timeout: z.number().optional().describe('블로킹 타임아웃(ms), 기본 300000 (5분)'),
@@ -48,6 +49,15 @@ export function registerSlackCheckCommandsTool(
                   requestedBy: c.requestedBy,
                   createdAt: c.createdAt,
                 })),
+                _meta: commands.length > 0
+                  ? {
+                      nextAction: 'process_then_resume',
+                      instruction: '각 명령을 실행하고 slack_command_result로 결과를 보고한 후, slack_check_commands(blocking=true)를 다시 호출하세요.',
+                    }
+                  : {
+                      nextAction: 'resume_wait',
+                      instruction: 'slack_check_commands(blocking=true)를 호출하여 대기를 시작하세요.',
+                    },
               }),
             }],
           };
@@ -72,6 +82,10 @@ export function registerSlackCheckCommandsTool(
                       requestedBy: c.requestedBy,
                       createdAt: c.createdAt,
                     })),
+                    _meta: {
+                      nextAction: 'process_then_resume',
+                      instruction: '각 명령을 실행하고 slack_command_result로 결과를 보고한 후, slack_check_commands(blocking=true)를 다시 호출하세요.',
+                    },
                   }),
                 }],
               };
@@ -86,7 +100,14 @@ export function registerSlackCheckCommandsTool(
         return {
           content: [{
             type: 'text' as const,
-            text: JSON.stringify({ commands: [], message: '대기 시간 초과, 명령 없음' }),
+            text: JSON.stringify({
+              commands: [],
+              message: '대기 시간 초과, 명령 없음',
+              _meta: {
+                nextAction: 'resume_wait',
+                instruction: 'slack_check_commands(blocking=true)를 다시 호출하여 대기를 계속하세요.',
+              },
+            }),
           }],
         };
       } catch (err) {

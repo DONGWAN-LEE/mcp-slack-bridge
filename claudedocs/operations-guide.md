@@ -138,7 +138,7 @@ pm2 set pm2-logrotate:compress true
 | `STATE_DIR` | 상태 디렉토리 | `./state` |
 | `CLAUDE_WORKING_DIR` | 작업 디렉토리 | 현재 디렉토리 |
 | `POLL_INTERVAL_MS` | 폴링 간격 (ms) | `2000` |
-| `NOTIFICATION_DELAY_SECONDS` | 알림 지연 (초) | `300` |
+| `NOTIFICATION_DELAY_SECONDS` | 알림 지연 (초) | `0` |
 | `SESSION_TIMEOUT_MS` | 세션 타임아웃 (ms) | `3600000` |
 | `HEARTBEAT_INTERVAL_MS` | 하트비트 간격 (ms) | `30000` |
 | `STALE_SESSION_MS` | 비활성 세션 판정 (ms) | `300000` |

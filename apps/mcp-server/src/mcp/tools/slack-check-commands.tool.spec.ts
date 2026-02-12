@@ -102,6 +102,17 @@ describe('slack_check_commands tool', () => {
       const parsed = JSON.parse(result.content[0].text);
       expect(parsed.commands).toEqual([]);
     });
+
+    it('should include _meta with nextAction in non-blocking response with commands', async () => {
+      (fileBridge.readPendingCommands as jest.Mock).mockReturnValue([mockCommand]);
+
+      const result = await toolHandler({ blocking: false });
+
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed._meta).toBeDefined();
+      expect(parsed._meta.nextAction).toBe('process_then_resume');
+      expect(parsed._meta.instruction).toContain('slack_command_result');
+    });
   });
 
   describe('blocking mode', () => {
@@ -114,6 +125,17 @@ describe('slack_check_commands tool', () => {
       const parsed = JSON.parse(result.content[0].text);
       expect(parsed.commands).toHaveLength(1);
       expect(parsed.commands[0].commandId).toBe('cmd-1');
+    });
+
+    it('should include _meta with process_then_resume when commands found', async () => {
+      (fileBridge.readPendingCommands as jest.Mock).mockReturnValue([mockCommand]);
+
+      const result = await toolHandler({ blocking: true });
+
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed._meta).toBeDefined();
+      expect(parsed._meta.nextAction).toBe('process_then_resume');
+      expect(parsed._meta.instruction).toContain('slack_check_commands(blocking=true)');
     });
 
     it('should return empty array with message on timeout', async () => {
@@ -129,6 +151,21 @@ describe('slack_check_commands tool', () => {
       const parsed = JSON.parse(result.content[0].text);
       expect(parsed.commands).toEqual([]);
       expect(parsed.message).toBeDefined();
+    });
+
+    it('should include _meta with resume_wait on timeout', async () => {
+      (fileBridge.readPendingCommands as jest.Mock).mockReturnValue([]);
+
+      const handlerPromise = toolHandler({ blocking: true, timeout: 2000 });
+
+      await jest.advanceTimersByTimeAsync(3000);
+
+      const result = await handlerPromise;
+
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed._meta).toBeDefined();
+      expect(parsed._meta.nextAction).toBe('resume_wait');
+      expect(parsed._meta.instruction).toContain('slack_check_commands(blocking=true)');
     });
   });
 });

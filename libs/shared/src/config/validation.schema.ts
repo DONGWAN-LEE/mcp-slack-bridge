@@ -49,7 +49,7 @@ export const validationSchema = Joi.object({
   STALE_SESSION_MS: Joi.number().integer().min(60000).default(300000),
 
   // Optional - Notification delay
-  NOTIFICATION_DELAY_SECONDS: Joi.number().integer().min(0).max(3600).default(300),
+  NOTIFICATION_DELAY_SECONDS: Joi.number().integer().min(0).max(3600).default(0),
 
   // Optional - Polling
   POLL_INTERVAL_MS: Joi.number().integer().min(500).max(30000).default(2000),

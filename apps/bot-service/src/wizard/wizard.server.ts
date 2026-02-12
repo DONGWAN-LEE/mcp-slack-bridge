@@ -1,4 +1,5 @@
-import express, { Express } from 'express';
+import * as express from 'express';
+import { Express } from 'express';
 import { Server } from 'http';
 import { Socket } from 'net';
 import { join } from 'path';

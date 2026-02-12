@@ -1,7 +1,8 @@
 export interface ParsedAction {
-  action: 'approve' | 'reject' | 'custom_reply';
+  action: 'approve' | 'reject' | 'custom_reply' | 'option_select';
   sessionId: string;
   questionId: string;
+  optionIndex?: number;
 }
 
 export interface ContextInjection {

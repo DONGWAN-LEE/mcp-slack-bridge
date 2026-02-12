@@ -25,6 +25,7 @@ import { buildQuestionMessage } from '../slack/formatters/question-message.forma
 import { buildNotificationMessage } from '../slack/formatters/notification-message.formatter';
 import { buildSessionEndMessage } from '../slack/formatters/session-end-message.formatter';
 import { buildCommandResultMessage } from '../slack/formatters/command-message.formatter';
+import { buildSessionsListMessage } from '../slack/formatters/sessions-list.formatter';
 
 @Injectable()
 export class PollerService implements OnModuleInit, OnModuleDestroy {
@@ -46,9 +47,48 @@ export class PollerService implements OnModuleInit, OnModuleDestroy {
     private readonly sessionCfg: ConfigType<typeof sessionConfig>,
   ) {}
 
-  onModuleInit(): void {
+  async onModuleInit(): Promise<void> {
+    await this.announceActiveSessions();
     this.timer = setInterval(() => this.poll(), this.pollingCfg.intervalMs);
     this.logger.log(`Polling started (interval: ${this.pollingCfg.intervalMs}ms)`);
+  }
+
+  private async announceActiveSessions(): Promise<void> {
+    try {
+      const sessionsDir = join(this.pathsCfg.stateDir, 'sessions');
+      const sessionIds = this.listDirectories(sessionsDir);
+      const activeSessions: SessionMeta[] = [];
+
+      for (const sessionId of sessionIds) {
+        const metaPath = join(sessionsDir, sessionId, 'meta.json');
+        const meta = readJsonFile<SessionMeta>(metaPath);
+        if (!meta || meta.status === 'terminated') continue;
+
+        if (meta.slackThreadTs) {
+          delete meta.slackThreadTs;
+          atomicWriteJson(metaPath, meta);
+        }
+
+        activeSessions.push(meta);
+      }
+
+      if (activeSessions.length === 0) {
+        this.logger.log('Startup: no active sessions found');
+        return;
+      }
+
+      activeSessions.sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+
+      const channelId = this.slackService.getChannelId();
+      const msg = buildSessionsListMessage(activeSessions, channelId);
+      await this.slackService.postMessage(msg);
+
+      this.logger.log(`Startup: ${activeSessions.length} active session(s) announced`);
+    } catch (err) {
+      this.logger.error(`Startup announcement failed: ${(err as Error).message}`);
+    }
   }
 
   onModuleDestroy(): void {

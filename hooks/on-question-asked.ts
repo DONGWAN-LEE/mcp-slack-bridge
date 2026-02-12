@@ -46,6 +46,13 @@ async function main(): Promise<void> {
   };
 
   atomicWriteJson(join(questionsDir, `${questionId}.json`), questionFile);
+
+  // Block AskUserQuestion and redirect LLM to use slack_wait_response
+  const blockDecision = {
+    decision: 'block',
+    reason: `질문이 Slack에 전송되었습니다. slack_wait_response를 questionId="${questionId}"로 호출하여 응답을 대기하세요.`,
+  };
+  console.log(JSON.stringify(blockDecision));
 }
 
 main().catch((e) => console.error('[Hook:on-question-asked]', e)).finally(() => process.exit(0));

@@ -44,7 +44,7 @@ export const sessionConfig = registerAs('session', () => ({
 
 export const pollingConfig = registerAs('polling', () => ({
   intervalMs: parseInt(process.env.POLL_INTERVAL_MS || '2000', 10),
-  notificationDelaySec: parseInt(process.env.NOTIFICATION_DELAY_SECONDS || '300', 10),
+  notificationDelaySec: parseInt(process.env.NOTIFICATION_DELAY_SECONDS || '0', 10),
 }));
 
 export const queueConfig = registerAs('queue', () => ({

@@ -58,7 +58,7 @@ cat state/sessions/<session-id>/meta.json
 
 | 원인 | 해결 방법 |
 |------|----------|
-| 알림 지연 | `NOTIFICATION_DELAY_SECONDS` 확인 (기본 300초 = 5분) |
+| 알림 지연 | `NOTIFICATION_DELAY_SECONDS` 확인 (기본 0초 = 즉시, 이전 설정이 남아있으면 0으로 변경) |
 | 채널 ID 오류 | `SLACK_CHANNEL_ID`가 올바른지 확인 |
 | Bot 미실행 | Bot 서비스가 실행 중인지 확인 |
 | 파일 쓰기 실패 | MCP 서버 로그에서 `[FileBridge]` 에러 확인 |

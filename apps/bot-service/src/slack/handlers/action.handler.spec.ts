@@ -56,7 +56,7 @@ describe('ActionHandler', () => {
 
   it('should register action handler on init', () => {
     expect(slackService.getApp().action).toHaveBeenCalledWith(
-      /^(approve|reject|custom_reply):/,
+      /^(approve|reject|custom_reply|option_\d+):/,
       expect.any(Function),
     );
   });
@@ -97,6 +97,59 @@ describe('ActionHandler', () => {
       expect.objectContaining({ type: 'modal' }),
     );
     expect(fileUtils.atomicWriteJson).not.toHaveBeenCalled();
+  });
+
+  it('should handle option_N action and write option label as answer', async () => {
+    (fileUtils.readJsonFile as jest.Mock).mockReturnValue({
+      questionId: 'q-123',
+      question: 'Which approach?',
+      options: ['Delete locally and remotely', 'Keep files'],
+    });
+
+    const ctx = createCtx('option_0:session-uuid:q-123');
+    await registeredHandler(ctx);
+
+    expect(ctx.ack).toHaveBeenCalled();
+    expect(fileUtils.atomicWriteJson).toHaveBeenCalledWith(
+      expect.stringContaining('q-123.json'),
+      expect.objectContaining({
+        answer: 'Delete locally and remotely',
+        source: 'slack_button',
+      }),
+    );
+    expect(slackService.updateMessage).toHaveBeenCalled();
+  });
+
+  it('should handle option_1 action correctly', async () => {
+    (fileUtils.readJsonFile as jest.Mock).mockReturnValue({
+      questionId: 'q-123',
+      question: 'Which approach?',
+      options: ['Option A', 'Option B', 'Option C'],
+    });
+
+    const ctx = createCtx('option_1:session-uuid:q-123');
+    await registeredHandler(ctx);
+
+    expect(fileUtils.atomicWriteJson).toHaveBeenCalledWith(
+      expect.stringContaining('q-123.json'),
+      expect.objectContaining({ answer: 'Option B' }),
+    );
+  });
+
+  it('should fallback to option_N string if option index out of range', async () => {
+    (fileUtils.readJsonFile as jest.Mock).mockReturnValue({
+      questionId: 'q-123',
+      question: 'Which approach?',
+      options: ['Only option'],
+    });
+
+    const ctx = createCtx('option_5:session-uuid:q-123');
+    await registeredHandler(ctx);
+
+    expect(fileUtils.atomicWriteJson).toHaveBeenCalledWith(
+      expect.stringContaining('q-123.json'),
+      expect.objectContaining({ answer: 'option_5' }),
+    );
   });
 
   it('should reject unauthorized users', async () => {

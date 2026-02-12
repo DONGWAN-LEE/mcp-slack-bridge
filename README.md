@@ -10,6 +10,7 @@ Slack-Claude Code 멀티세션 통합 시스템.
 - **알림 전송** - 작업 완료, 에러 등 단방향 알림을 Slack으로 전송
 - **세션 관리** - 멀티세션 환경에서 각 세션을 독립적으로 추적/관리
 - **세션 리모트 커맨드** - Slack 쓰레드에서 기존 Claude Code 세션에 직접 명령 전달
+- **자동 대기 루프** - 작업 완료 후 Slack 명령을 자동으로 대기하는 3중 안전망 시스템
 
 ## 아키텍처
 
@@ -181,7 +182,7 @@ cp .env.example .env
 | `BLOCKED_COMMANDS` | 차단할 명령어 (쉼표 구분) | `rm -rf,format,del /f,...` |
 | `CONFIRM_COMMANDS` | 확인 필요 명령어 (쉼표 구분) | `git push,git reset,...` |
 | `MAX_PROMPT_LENGTH` | 최대 프롬프트 길이 | `2000` |
-| `NOTIFICATION_DELAY_SECONDS` | 질문 Slack 전송 지연 (초, 0=즉시) | `300` (5분) |
+| `NOTIFICATION_DELAY_SECONDS` | 질문 Slack 전송 지연 (초, 0=즉시) | `0` (즉시) |
 | `MAX_ACTIVE_SESSIONS` | 최대 동시 세션 수 | `10` |
 | `SESSION_TIMEOUT_MS` | 세션 타임아웃 (ms) | `3600000` (1시간) |
 | `HEARTBEAT_INTERVAL_MS` | Heartbeat 간격 (ms) | `30000` (30초) |
@@ -398,6 +399,243 @@ Bot이 활성 Claude Code 세션을 자동 감지하여 Slack에 세션 쓰레�
 >
 > 자세한 비교는 [Slack 명령어 실행 방식 비교 가이드](./claudedocs/slack-command-guide.md)를 참고하세요.
 
+## Slack 명령 자동 대기 (Stop Hook)
+
+Claude Code가 작업을 완료한 후에도 Slack 명령을 계속 수신할 수 있도록 **3중 안전망**을 제공합니다.
+
+### 동작 원리
+
+```
+Layer 1: CLAUDE.md ─── LLM에게 대기 루프 진입 지시 (소프트 가이드)
+Layer 2: PostToolUse Hook ─── 도구 사용 시마다 대기 상태 리마인더
+Layer 3: Stop Hook ─── LLM 정지 시도를 차단하고 대기 루프 강제 진입
+```
+
+**흐름:**
+1. Claude Code가 작업 완료 → `slack_check_commands(blocking=true)` 호출하여 대기
+2. Slack에서 `@claude <명령>` → Bot이 명령 파일 생성 → MCP가 수신 → Claude 실행
+3. 실행 결과 → `slack_command_result` → Slack 쓰레드에 게시 → 다시 대기 루프
+4. LLM이 대기 루프에 진입하지 않고 멈추려 하면 → **Stop Hook이 차단** → 강제로 대기 루프 진입
+
+### 안전 장치
+
+| 장치 | 설명 |
+|------|------|
+| **Circuit Breaker** | 연속 5회 차단 후 자동 정지 허용 (무한 루프 방지) |
+| **`.no-wait-loop` 플래그** | Slack에서 `@claude exit` 명령으로 명시적 종료 |
+| **쿨다운** | PostToolUse Hook의 알림 중복 방지 (10초) |
+| **세션 정리** | 정지 허용 시 세션 상태를 terminated로 업데이트 |
+
+### 설정 방법
+
+#### 1. Hook 등록
+
+프로젝트의 `.claude/settings.local.json`에 hooks를 추가합니다:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node dist/hooks/hooks/on-check-commands.js"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node dist/hooks/hooks/on-stop.js"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+#### 2. CLAUDE.md 설정
+
+프로젝트 루트에 `CLAUDE.md`를 생성합니다:
+
+```markdown
+## Slack 명령 대기 워크플로우
+
+이 프로젝트는 mcp-slack-bridge를 통해 Slack @mention 명령을 수신합니다.
+
+### 필수 규칙
+1. **작업 완료 후 대기 진입**: 현재 작업이 끝나면 `slack_check_commands`를 `blocking=true`로 호출하세요.
+2. **명령 처리 후 재대기**: `slack_command_result`로 결과 보고 후 다시 `slack_check_commands(blocking=true)`를 호출하세요.
+3. **타임아웃 시 재호출**: 타임아웃으로 반환되면 즉시 다시 호출하여 대기를 계속하세요.
+```
+
+#### 3. 빌드
+
+```bash
+npm run build:all
+```
+
+#### 4. 세션 종료 방법
+
+| 방법 | 설명 |
+|------|------|
+| `@claude exit` (Slack) | `.no-wait-loop` 플래그 생성 → 다음 Stop Hook에서 정지 허용 |
+| Circuit Breaker | 연속 5회 차단 후 자동 정지 |
+| `Ctrl+C` (터미널) | 강제 종료 |
+
+> 자세한 설정과 문제 해결은 [Slack 대기 루프 가이드](./claudedocs/slack-wait-loop-guide.md)를 참고하세요.
+
+## 다른 프로젝트에서 Slack 컨트롤 사용하기
+
+mcp-slack-bridge를 통해 **어떤 프로젝트에서든** Claude Code를 Slack으로 원격 제어할 수 있습니다. 다음 **4가지 요구사항**이 모두 충족되어야 합니다.
+
+### 필수 요구사항 체크리스트
+
+| # | 요구사항 | 설명 |
+|---|---------|------|
+| 1 | **Bot 서비스 실행** | mcp-slack-bridge의 Bot 서비스가 상시 실행 중이어야 합니다 |
+| 2 | **MCP 서버 등록** | Claude Code에 slack-bridge MCP 서버가 등록되어야 합니다 |
+| 3 | **CLAUDE.md 대기 루프 지시** | 프로젝트에 대기 루프 진입 규칙이 명시되어야 합니다 |
+| 4 | **Hook 스크립트 등록** | Stop Hook과 PostToolUse Hook이 설정되어야 합니다 |
+
+> **하나라도 빠지면** Slack 컨트롤이 정상 작동하지 않습니다.
+
+### 1. Bot 서비스 실행
+
+Bot 서비스는 Slack과 파일 시스템 간의 브릿지 역할을 합니다. **한 번만 실행**하면 모든 프로젝트에서 공유합니다.
+
+```bash
+# mcp-slack-bridge 디렉토리에서
+npm run start:bot        # 또는 pm2: npx pm2 start ecosystem.config.js
+```
+
+### 2. MCP 서버 등록
+
+Claude Code가 `slack_check_commands`, `slack_command_result` 등의 MCP 도구를 사용하려면 MCP 서버가 등록되어야 합니다.
+
+**방법 A: 글로벌 등록** (모든 프로젝트에서 사용 — 권장)
+
+`~/.claude.json`에 추가:
+```json
+{
+  "mcpServers": {
+    "slack-bridge": {
+      "command": "node",
+      "args": ["/path/to/mcp-slack-bridge/dist/apps/mcp-server/main.js"],
+      "env": {
+        "STATE_DIR": "/path/to/mcp-slack-bridge/state"
+      }
+    }
+  }
+}
+```
+
+**방법 B: 프로젝트별 등록**
+
+해당 프로젝트의 `.claude/settings.local.json`에 추가:
+```json
+{
+  "mcpServers": {
+    "slack-bridge": {
+      "command": "node",
+      "args": ["/path/to/mcp-slack-bridge/dist/apps/mcp-server/main.js"],
+      "env": {
+        "STATE_DIR": "/path/to/mcp-slack-bridge/state"
+      }
+    }
+  }
+}
+```
+
+> **중요**: `args`와 `STATE_DIR`의 경로는 mcp-slack-bridge가 설치된 **절대 경로**로 변경하세요.
+
+### 3. CLAUDE.md 대기 루프 지시
+
+대상 프로젝트의 루트에 `CLAUDE.md` 파일을 생성하고 아래 내용을 추가합니다. 이 지시가 없으면 Claude Code가 작업 완료 후 Slack 명령 대기 상태로 진입하지 않습니다.
+
+```markdown
+## Slack 명령 대기 워크플로우
+
+이 프로젝트는 mcp-slack-bridge를 통해 Slack @mention 명령을 수신합니다.
+
+### 필수 규칙
+1. **작업 완료 후 대기 진입**: 현재 작업이 끝나면 `slack_check_commands`를 `blocking=true`로 호출하여 Slack 명령 대기 상태로 진입하세요.
+2. **명령 처리 후 재대기**: Slack 명령을 처리하고 `slack_command_result`로 결과를 보고한 후, 다시 `slack_check_commands(blocking=true)`를 호출하세요.
+3. **타임아웃 시 재호출**: `slack_check_commands`가 타임아웃으로 반환되면 즉시 다시 호출하여 대기를 계속하세요.
+```
+
+### 4. Hook 스크립트 등록
+
+Stop Hook이 없으면 Claude Code가 작업 완료 후 즉시 멈춰버립니다. 대상 프로젝트의 `.claude/settings.local.json`에 hooks를 추가합니다:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /path/to/mcp-slack-bridge/dist/hooks/hooks/on-check-commands.js"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /path/to/mcp-slack-bridge/dist/hooks/hooks/on-stop.js"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+> **중요**: `command`의 경로는 mcp-slack-bridge의 빌드된 Hook 파일 **절대 경로**로 변경하세요. 사전에 `npm run build:hooks`로 빌드해야 합니다.
+
+### 설정 확인
+
+모든 설정이 완료되었는지 확인하려면:
+
+1. Bot 서비스 실행 확인: `pm2 status` 또는 Bot 프로세스 확인
+2. Claude Code 시작 후 MCP 도구 목록에 `slack_check_commands`가 보이는지 확인
+3. Claude Code에 "대기루프 진입해"라고 입력하여 Slack 대기 상태 진입 확인
+4. Slack 세션 쓰레드에서 `@claude 테스트` 멘션으로 명령 전달 확인
+
+## Hooks 시스템
+
+Claude Code의 Hook 이벤트에 연결하여 Slack 연동을 자동화합니다.
+
+| Hook 파일 | 이벤트 | 역할 |
+|-----------|--------|------|
+| `on-stop.ts` | Stop | LLM 정지 차단, 대기 루프 강제 진입 |
+| `on-check-commands.ts` | PostToolUse | Slack 명령 감지 리마인더, 카운터 리셋 |
+| `on-question-asked.ts` | PreToolUse (AskUserQuestion) | 질문을 Slack으로 전달 |
+| `on-question-answered.ts` | PostToolUse (AskUserQuestion) | Slack 응답을 Claude에 전달 |
+| `on-notification.ts` | Notification | 알림 이벤트 처리 |
+
+**Hook 빌드:**
+```bash
+npm run build:hooks
+```
+
+**상태 파일 (세션 디렉토리에 저장):**
+| 파일 | 역할 |
+|------|------|
+| `.stop-block-count` | Stop Hook 연속 차단 횟수 |
+| `.no-wait-loop` | 명시적 종료 플래그 |
+| `.wait-loop-notified` | 초기 대기 루프 진입 안내 완료 마커 |
+| `.command-notify-ts` | PostToolUse 알림 쿨다운 타임스탬프 |
+
 ## 프로젝트 구조
 
 ```
@@ -438,6 +676,15 @@ mcp-slack-bridge/
 │       ├── commands/             # Slack에서 전달된 명령
 │       └── command-results/      # 명령 실행 결과
 │
+├── hooks/                        # Claude Code Hook 스크립트
+│   ├── on-stop.ts                # Stop Hook (대기 루프 강제)
+│   ├── on-check-commands.ts      # PostToolUse Hook (명령 감지)
+│   ├── on-question-asked.ts      # PreToolUse Hook (질문 전달)
+│   ├── on-question-answered.ts   # PostToolUse Hook (응답 전달)
+│   ├── on-notification.ts        # Notification Hook
+│   ├── utils/                    # Hook 유틸리티
+│   └── __tests__/                # Hook 테스트
+│
 ├── claudedocs/                   # 설계 문서
 ├── .env.example                  # 환경변수 템플릿
 ├── nest-cli.json                 # NestJS Monorepo 설정
@@ -471,7 +718,9 @@ npm run test:cov
 | Thread Control | 쓰레드 기반 실시간 작업 제어 (@mention) | ✅ 완료 |
 | Setup Wizard | 웹 기반 초기 설정 가이드 | ✅ 완료 |
 | Session Remote Command | Slack → 기존 Claude Code 세션 명령 전달 | ✅ 완료 |
-| Phase 6 | 안정화 및 배포 (모니터링, 문서화, CI/CD) | 미구현 |
+| Phase 6 | 안정화 및 배포 (에러 핸들링, 보안, CI/CD, pm2, 문서화) | ✅ 완료 |
+| Slack 명령 감지 | PostToolUse 훅 + MCP 프로액티브 알림 + 대기 루프 | ✅ 완료 |
+| Stop Hook 대기 강제 | Stop 훅으로 LLM 유휴 방지, 3중 안전망 | ✅ 완료 |
 
 ## 라이선스
 
