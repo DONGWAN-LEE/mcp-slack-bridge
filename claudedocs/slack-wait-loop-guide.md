@@ -35,6 +35,28 @@ Claude Code 작업 시작
                     └─ 차단 횟수 ≥ 5 → Circuit Breaker → 세션 정리 후 정지 허용
 ```
 
+## 필수 요구사항
+
+Slack 명령 대기 루프가 정상 작동하려면 다음 **4가지 요구사항**이 모두 충족되어야 합니다. 하나라도 빠지면 Slack으로 Claude Code를 원격 제어할 수 없습니다.
+
+| # | 요구사항 | 없으면 어떻게 되나? |
+|---|---------|-------------------|
+| 1 | **Bot 서비스 실행** | Slack 메시지를 수신/발송할 수 없음 |
+| 2 | **MCP 서버 등록** | `slack_check_commands` 등 MCP 도구를 사용할 수 없음 |
+| 3 | **CLAUDE.md 대기 루프 지시** | Claude Code가 작업 완료 후 대기 상태로 진입하지 않음 |
+| 4 | **Hook 스크립트 등록** | Stop Hook 없이 LLM이 즉시 정지함, PostToolUse Hook 없이 리마인더/카운터 리셋 불가 |
+
+### 다른 프로젝트에서 사용하기
+
+mcp-slack-bridge 프로젝트 외의 다른 프로젝트에서 Slack 컨트롤을 사용하려면:
+
+1. **Bot 서비스**: mcp-slack-bridge 디렉토리에서 한 번 실행 → 모든 프로젝트가 공유
+2. **MCP 서버**: `~/.claude.json` (글로벌) 또는 `.claude/settings.local.json` (프로젝트별)에 등록
+3. **CLAUDE.md**: 대상 프로젝트 루트에 생성하여 대기 루프 규칙 명시
+4. **Hook 스크립트**: 대상 프로젝트의 `.claude/settings.local.json`에 **절대 경로**로 등록
+
+> 자세한 설정 방법은 [README.md의 "다른 프로젝트에서 Slack 컨트롤 사용하기"](../README.md#다른-프로젝트에서-slack-컨트롤-사용하기) 섹션을 참고하세요.
+
 ## 설정 방법
 
 ### 1단계: 빌드
